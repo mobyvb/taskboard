@@ -254,15 +254,15 @@ var gotoTarget = regexp.MustCompile(`^[A-Za-z0-9._-]*@[0-9]+-%[0-9]+$`)
 func main() {
 	var allow stringList
 	port := flag.Int("port", 8723, "port to listen on (binds 127.0.0.1)")
-	gotoScript := flag.String("goto-script", "", "explicit path to goto-pane-location (overrides -utils)")
+	gotoScript := flag.String("goto-script", "", "explicit path to goto-pane-location (overrides -scripts)")
 	home, _ := os.UserHomeDir()
-	// Default: scripts/ next to the compiled binary. For go run, set UTILS_PATH.
+	// Default: scripts/ next to the compiled binary. For go run, set TASKBOARD_SCRIPTS_PATH.
 	exe, _ := os.Executable()
-	defaultUtils := filepath.Join(filepath.Dir(exe), "scripts")
-	if u := os.Getenv("UTILS_PATH"); u != "" {
-		defaultUtils = u
+	defaultScripts := filepath.Join(filepath.Dir(exe), "scripts")
+	if u := os.Getenv("TASKBOARD_SCRIPTS_PATH"); u != "" {
+		defaultScripts = u
 	}
-	utilsPath := flag.String("utils", defaultUtils, "directory containing helper scripts (goto-pane-location, etc.); overridden by UTILS_PATH env var")
+	scriptsPath := flag.String("scripts", defaultScripts, "directory containing helper scripts (goto-pane-location, etc.); overridden by TASKBOARD_SCRIPTS_PATH env var")
 	dataDir := flag.String("data", filepath.Join(home, ".taskboard"), "directory for persisted events and read marker")
 	flag.Var(&allow, "allow", "allowed filename to serve (repeatable, default context.txt)")
 	flag.Parse()
@@ -275,10 +275,10 @@ func main() {
 		log.Fatal("TASK_QUEUE_PATH is not set")
 	}
 
-	utils, _ := filepath.Abs(*utilsPath)
+	scripts, _ := filepath.Abs(*scriptsPath)
 	script := *gotoScript
 	if script == "" {
-		script = filepath.Join(utils, "goto-pane-location")
+		script = filepath.Join(scripts, "goto-pane-location")
 	}
 	script, _ = filepath.Abs(script)
 
@@ -446,7 +446,7 @@ func main() {
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
-	log.Printf("taskboard on http://%s (root=%s, allow=%v, utils=%s, goto=%s)", addr, root, allow, utils, script)
+	log.Printf("taskboard on http://%s (root=%s, allow=%v, scripts=%s, goto=%s)", addr, root, allow, scripts, script)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 

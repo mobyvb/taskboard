@@ -11,7 +11,7 @@ Clone this repo anywhere, then set environment variables:
 | Variable | Required | Description |
 |---|---|---|
 | `TASK_QUEUE_PATH` | yes | root directory of your task queue |
-| `UTILS_PATH` | for `go run` only | absolute path to the `scripts/` directory in this repo |
+| `TASKBOARD_SCRIPTS_PATH` | for `go run` only | absolute path to the `scripts/` directory in this repo |
 
 ## Run
 
@@ -23,16 +23,16 @@ go build -o taskboard .
 TASK_QUEUE_PATH=/path/to/tasks ./taskboard   # http://127.0.0.1:8723
 ```
 
-Or with `go run` (set `UTILS_PATH` since there is no binary to locate scripts/ from):
+Or with `go run` (set `TASKBOARD_SCRIPTS_PATH` since there is no binary to locate scripts/ from):
 
 ```sh
 cd /path/to/taskboard
-TASK_QUEUE_PATH=/path/to/tasks UTILS_PATH=/path/to/taskboard/scripts go run .
+TASK_QUEUE_PATH=/path/to/tasks TASKBOARD_SCRIPTS_PATH=/path/to/taskboard/scripts go run .
 ```
 
 Flags: `-port 8723`, `-allow context.txt` (repeatable filename whitelist),
-`-utils /path/to/taskboard/scripts` (directory containing helper scripts; overridden by `UTILS_PATH` env var),
-`-goto-script PATH` (explicit path to `goto-pane-location`; overrides `-utils`),
+`-scripts /path/to/taskboard/scripts` (directory containing helper scripts; overridden by `TASKBOARD_SCRIPTS_PATH` env var),
+`-goto-script PATH` (explicit path to `goto-pane-location`; overrides `-scripts`),
 `-data ~/.taskboard` (persistence dir: `events.jsonl` + `read.txt`; events and the
 read marker survive restarts, workers are rebuilt by replaying events).
 
@@ -71,5 +71,5 @@ Add to `~/.claude/settings.json` (replace `/path/to/taskboard` with your clone l
 
 Note: `PANE_LOC` is per-shell, so run `. /path/to/taskboard/scripts/set-pane-location`
 (or export it) in the pane before starting `claude`, otherwise the hook falls back to
-`scripts/get-pane-location`. Set `UTILS_PATH=/path/to/taskboard/scripts` if running
-`claude-hook.sh` from outside the repo.
+`scripts/get-pane-location` (resolved next to `claude-hook.sh`, or via
+`TASKBOARD_SCRIPTS_PATH` if set).

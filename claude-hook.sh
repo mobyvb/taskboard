@@ -11,8 +11,8 @@ input="$(cat)"
 
 pane_loc="${PANE_LOC:-}"
 if [[ -z "$pane_loc" ]]; then
-  utils_dir="${UTILS_PATH:-$HOME/utils}"
-  pane_loc="$("$utils_dir/get-pane-location" 2>/dev/null || true)"
+  scripts_dir="${TASKBOARD_SCRIPTS_PATH:-$SCRIPT_DIR/scripts}"
+  pane_loc="$("$scripts_dir/get-pane-location" 2>/dev/null || true)"
 fi
 
 jq -n \
