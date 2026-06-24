@@ -411,6 +411,11 @@ func main() {
 		w.Header().Set("Cache-Control", "no-cache")
 		ch := store.Subscribe()
 		defer store.Unsubscribe(ch)
+		// Flush headers immediately so the client's EventSource fires onopen at
+		// once; otherwise no bytes are sent until the first event or ping (up to
+		// 25s), which stalls the initial events/workers load behind onopen.
+		fmt.Fprint(w, ": connected\n\n")
+		flusher.Flush()
 		// Heartbeat keeps idle connections from being dropped (sleep/wake,
 		// proxies) and lets the browser detect dead ones promptly.
 		ping := time.NewTicker(25 * time.Second)

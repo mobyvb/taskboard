@@ -19,6 +19,8 @@
   .tab.active { background: #2d4a6b; border-color: #3a5a82; }
   .tab-badge { background: #e05555; color: #fff; border-radius: 9px; padding: 0 6px; font-size: 10px; font-weight: 600; min-width: 14px; text-align: center; }
   .tab-elapsed { color: #8b95a5; font-size: 10px; }
+  .tab-close { color: #8b95a5; font-weight: 700; padding: 0 3px; border-radius: 3px; line-height: 1; }
+  .tab-close:hover { background: #e05555; color: #fff; }
   details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
   summary { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
   summary code { flex: 1; }
@@ -182,10 +184,30 @@ function renderTabs() {
       + (unread ? `<span class="tab-badge">${unread}</span>` : '')
       + (last ? `<span class="tab-elapsed">${elapsed(last)}</span>` : '');
     btn.onclick = () => switchTab(name);
+    // Closing a tab (×) returns its files/workers/events to Home.
+    if (name !== HOME) {
+      const x = document.createElement('span');
+      x.className = 'tab-close';
+      x.textContent = '×';
+      x.title = 'close tab (items return to Home)';
+      x.onclick = e => { e.stopPropagation(); closeTab(name); };
+      btn.appendChild(x);
+    }
     bar.appendChild(btn);
   }
 }
 function switchTab(name) { currentTab = name; renderAll(); }
+
+// closeTab forgets a tab and its read marker. Its files/workers are no longer
+// claimed by any tab, so they (and their events) fall back to Home.
+function closeTab(name) {
+  if (name === HOME) return;
+  const state = loadTabState(), reads = loadReads();
+  delete state[name]; delete reads[name];
+  saveTabState(state); saveReads(reads);
+  if (currentTab === name) currentTab = HOME;
+  renderAll();
+}
 function renderAll() { renderTabs(); renderFiles(); renderWorkers(); renderEvents(); }
 
 // ---- files ----
@@ -483,7 +505,11 @@ function connect() {
 setupNotifBtn();
 renderTabs();
 connect();
+// Load everything up front so the first paint doesn't wait on the SSE
+// handshake; the stream then keeps it live.
 loadFiles();
+loadEvents();
+loadWorkers();
 // Periodic tick: refresh task files (replaces the old explicit refresh) and
 // re-tick tab indicators (unread counts + elapsed-time labels).
 setInterval(() => { renderTabs(); loadFiles(); }, 15000);
