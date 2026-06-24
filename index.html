@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>taskboard</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.5 -apple-system, sans-serif; background: #14161a; color: #dde2e8; margin: 0; }
+  .topbar { position: sticky; top: 0; z-index: 5; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: #1c1f26; border-bottom: 1px solid #2c313a; }
+  h1 { font-size: 16px; margin: 0; flex: 1; }
+  nav#tabbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #181b21; border-bottom: 1px solid #2c313a; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b95a5; margin: 0 0 10px; }
+  button { background: #2c313a; color: #dde2e8; border: 1px solid #3c424e; border-radius: 5px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #3c424e; }
+  .tab { display: inline-flex; align-items: center; gap: 6px; }
+  .tab.active { background: #2d4a6b; border-color: #3a5a82; }
+  .tab-badge { background: #e05555; color: #fff; border-radius: 9px; padding: 0 6px; font-size: 10px; font-weight: 600; min-width: 14px; text-align: center; }
+  .tab-elapsed { color: #8b95a5; font-size: 10px; }
+  details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
+  summary { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  summary code { flex: 1; }
+  pre { margin: 0; padding: 12px; border-top: 1px solid #2c313a; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; color: #b9c2cf; max-height: 50vh; overflow: auto; }
+  .editor { width: 100%; min-height: 300px; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 10px; font: 12.5px/1.5 monospace; box-sizing: border-box; resize: vertical; }
+  .event { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+  .event .top { display: flex; gap: 8px; align-items: baseline; }
+  .event .type { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #2d4a6b; }
+  .event .time { color: #717c8d; font-size: 12px; margin-left: auto; }
+  .event .desc { color: #9aa4b4; margin: 4px 0; }
+  .event pre { border: none; padding: 6px 0 0; max-height: 160px; }
+  .event.read { opacity: .55; }
+  .read-bar { display: flex; align-items: center; gap: 8px; color: #e05555; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 10px 0; }
+  .read-bar::before, .read-bar::after { content: ''; flex: 1; border-top: 2px solid #e05555; }
+  .worker { display: inline-flex; gap: 8px; align-items: center; background: #1c2b22; border: 1px solid #2f4a3a; border-radius: 6px; padding: 5px 10px; margin: 0 8px 8px 0; }
+  .move-pop { position: absolute; z-index: 20; max-width: 260px; background: #1c1f26; border: 1px solid #3c424e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  .move-pop .move-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .move-pop .move-row { display: flex; gap: 6px; }
+  .move-pop input { flex: 1; min-width: 0; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 3px 8px; font: 12px sans-serif; }
+  #toasts { position: fixed; bottom: 16px; right: 16px; z-index: 10; }
+  .toast { background: #2d4a6b; padding: 10px 14px; border-radius: 6px; margin-top: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+  .muted { color: #717c8d; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <header>
+    <h1>taskboard</h1>
+    <span id="conn" class="muted">connecting…</span>
+    <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
+  </header>
+  <nav id="tabbar"></nav>
+</div>
+<main>
+  <section>
+    <h2>Task files</h2>
+    <div id="files" class="muted">loading…</div>
+  </section>
+  <section>
+    <h2>Active workers</h2>
+    <div id="workers" class="muted">none</div>
+    <h2 style="margin-top:20px">Worker events</h2>
+    <div id="events" class="muted">none</div>
+  </section>
+</main>
+<div id="toasts"></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+
+// Short "time since" label, e.g. "8s", "5m", "34h", "2d".
+function elapsed(date) {
+  const s = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60); if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60); if (h < 24) return h + 'h';
+  return Math.floor(h / 24) + 'd';
+}
+function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+
+// ---- tab state (localStorage) ----
+// taskboard_tabs:      { [tabName]: { files: string[], workers: string[] } }
+// taskboard_tab_reads: { "__home__": lastReadId, [tabName]: lastReadId }
+const TABS_KEY = 'taskboard_tabs', READS_KEY = 'taskboard_tab_reads', HOME = '__home__';
+
+function loadTabState() { try { return JSON.parse(localStorage.getItem(TABS_KEY)) || {}; } catch { return {}; } }
+function saveTabState(s) { localStorage.setItem(TABS_KEY, JSON.stringify(s)); }
+function loadReads() { try { return JSON.parse(localStorage.getItem(READS_KEY)) || {}; } catch { return {}; } }
+function saveReads(r) { localStorage.setItem(READS_KEY, JSON.stringify(r)); }
+
+function getTabForFile(path) {
+  for (const [n, t] of Object.entries(loadTabState())) if (t.files?.includes(path)) return n;
+  return null;
+}
+function getTabForWorker(key) {
+  for (const [n, t] of Object.entries(loadTabState())) if (t.workers?.includes(key)) return n;
+  return null;
+}
+
+// assignToTab moves an item to a named tab; tabName === HOME (or empty) just
+// unassigns it. Tabs left with no items are pruned along with their read marker.
+function assignToTab(tabName, type, id) {
+  const state = loadTabState(), reads = loadReads(), field = type === 'file' ? 'files' : 'workers';
+  for (const t of Object.values(state)) {
+    if (t[field]) { const i = t[field].indexOf(id); if (i >= 0) t[field].splice(i, 1); }
+  }
+  if (tabName && tabName !== HOME) {
+    const t = state[tabName] || (state[tabName] = { files: [], workers: [] });
+    if (!t[field].includes(id)) t[field].push(id);
+  }
+  for (const [n, t] of Object.entries(state)) {
+    if (!(t.files?.length) && !(t.workers?.length)) { delete state[n]; delete reads[n]; }
+  }
+  saveTabState(state); saveReads(reads);
+}
+
+function getTabRead(tabName) { return loadReads()[tabName] || 0; }
+function setTabRead(tabName, id) {
+  const reads = loadReads(); reads[tabName] = id; saveReads(reads);
+  // Home mirrors to the server marker for backward compat with read.txt.
+  if (tabName === HOME)
+    fetch('/api/read', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) }).catch(() => {});
+}
+
+// True if the given item belongs to tabName (HOME = unassigned).
+function tabFilter(tabName, type, id) {
+  const a = type === 'file' ? getTabForFile(id) : getTabForWorker(id);
+  return tabName === HOME ? a === null : a === tabName;
+}
+
+// ---- caches + current tab ----
+let allFiles = [], allWorkers = [], allEvents = [];
+let renderedFilePaths = [];
+let currentTab = HOME;
+
+// A worker's identity: session_id first (matches the server's worker key),
+// pane_loc as fallback.
+function keyOf(meta) { try { return meta?.session_id || meta?.pane_loc || null; } catch { return null; } }
+function paneLoc(e) { try { return e.metadata?.pane_loc || null; } catch { return null; } }
+
+function filesForTab(tabName) { return allFiles.filter(f => tabFilter(tabName, 'file', f.path)); }
+function workersForTab(tabName) { return allWorkers.filter(w => tabFilter(tabName, 'worker', w.key)); }
+
+// Most-recent event per worker key, filtered to a tab; newest first.
+function eventsForTab(tabName) {
+  const seen = new Set(), out = [];
+  for (const e of [...allEvents].reverse()) {
+    const k = keyOf(e.metadata);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    if (tabFilter(tabName, 'worker', k)) out.push(e);
+  }
+  return out;
+}
+function tabUnread(tabName) { const r = getTabRead(tabName); return eventsForTab(tabName).filter(e => e.id > r).length; }
+function tabLastTime(tabName) { const ev = eventsForTab(tabName); return ev.length ? new Date(ev[0].time) : null; }
+
+// Most-recent activity in a tab: latest event time or, failing that, newest file
+// mtime. Drives both the tab ordering and the elapsed-time label.
+function tabActivity(tabName) {
+  let t = 0;
+  const lt = tabLastTime(tabName); if (lt) t = lt.getTime();
+  for (const f of filesForTab(tabName)) if (f.mtime) t = Math.max(t, new Date(f.mtime).getTime());
+  return t;
+}
+// Named tabs ordered most-recent first; ties broken by name.
+function orderedTabNames() {
+  return Object.keys(loadTabState()).sort((a, b) => tabActivity(b) - tabActivity(a) || a.localeCompare(b));
+}
+
+// ---- tab bar ----
+function renderTabs() {
+  const names = [HOME, ...orderedTabNames()];
+  const bar = $('tabbar');
+  bar.innerHTML = '';
+  for (const name of names) {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (name === currentTab ? ' active' : '');
+    const unread = tabUnread(name), last = tabLastTime(name);
+    btn.innerHTML = `<span>${name === HOME ? 'Home' : esc(name)}</span>`
+      + (unread ? `<span class="tab-badge">${unread}</span>` : '')
+      + (last ? `<span class="tab-elapsed">${elapsed(last)}</span>` : '');
+    btn.onclick = () => switchTab(name);
+    bar.appendChild(btn);
+  }
+}
+function switchTab(name) { currentTab = name; renderAll(); }
+function renderAll() { renderTabs(); renderFiles(); renderWorkers(); renderEvents(); }
+
+// ---- files ----
+const urlRe = /https?:\/\/[^\s<>"&]+/g;
+function renderContent(text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(urlRe, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+}
+async function fetchFileContent(encPath) {
+  const r = await fetch('/api/file?path=' + encPath);
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()).content;
+}
+
+function renderFiles() {
+  const files = filesForTab(currentTab);
+  renderedFilePaths = files.map(f => f.path);
+  const host = $('files');
+  host.innerHTML = files.length ? '' : '<span class="muted">no matching files</span>';
+  for (const f of files) {
+    const encPath = encodeURIComponent(f.path);
+    const d = document.createElement('details');
+    d.dataset.encpath = encPath;
+    d.innerHTML = `<summary><code>${esc(f.path)}</code></summary><pre>…</pre>`;
+    const summary = d.querySelector('summary');
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'edit';
+    editBtn.onclick = e => { e.preventDefault(); editFile(d, encPath); };
+    const mvBtn = document.createElement('button');
+    mvBtn.textContent = 'tab ▾';
+    mvBtn.onclick = e => { e.preventDefault(); promptMove('file', f.path, mvBtn); };
+    summary.append(editBtn, mvBtn);
+    d.addEventListener('toggle', () => { if (d.open) loadFile(d, encPath); }, { once: true });
+    host.appendChild(d);
+    // Dedicated task tabs usually hold one file — expand it by default.
+    if (currentTab !== HOME) d.open = true;
+  }
+}
+
+async function loadFile(details, encPath) {
+  const pre = details.querySelector('pre');
+  if (!pre) return;  // being edited
+  const scroll = pre.scrollTop;
+  try {
+    const content = await fetchFileContent(encPath);
+    pre.innerHTML = renderContent(content);
+    pre.scrollTop = scroll;
+    details.dataset.content = content;
+  } catch(e) { pre.textContent = 'error: ' + e.message; }
+}
+
+// Refresh content of any open (non-editing) file panes in place.
+function refreshOpenFiles() {
+  for (const d of $('files').querySelectorAll('details[open]')) loadFile(d, d.dataset.encpath);
+}
+
+async function editFile(details, encPath) {
+  let content = details.dataset.content;
+  if (content === undefined) {
+    try { content = await fetchFileContent(encPath); details.dataset.content = content; }
+    catch(e) { alert('load error: ' + e.message); return; }
+  }
+  details.open = true;
+  const pre = details.querySelector('pre');
+  if (!pre) return;  // already editing
+  const ta = document.createElement('textarea');
+  ta.value = content;
+  ta.className = 'editor';
+  pre.replaceWith(ta);
+  const saveBtn = document.createElement('button'); saveBtn.textContent = 'save';
+  const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'cancel';
+  details.querySelector('summary').append(saveBtn, cancelBtn);
+  const finish = text => {
+    const newPre = document.createElement('pre');
+    newPre.innerHTML = renderContent(text);
+    ta.replaceWith(newPre);
+    saveBtn.remove(); cancelBtn.remove();
+  };
+  cancelBtn.onclick = e => { e.preventDefault(); finish(details.dataset.content ?? ''); };
+  saveBtn.onclick = async e => {
+    e.preventDefault();
+    const r = await fetch('/api/file?path=' + encPath, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ content: ta.value })
+    });
+    if (!r.ok) { alert('save failed: ' + await r.text()); return; }
+    details.dataset.content = ta.value;
+    finish(ta.value);
+  };
+}
+
+async function loadFiles() {
+  try { allFiles = await fetch('/api/files').then(r => r.json()) || []; } catch { return; }
+  const want = filesForTab(currentTab).map(f => f.path);
+  if (!arrEq(want, renderedFilePaths)) renderFiles();
+  else refreshOpenFiles();
+}
+
+// ---- workers ----
+function renderWorkers() {
+  const workers = workersForTab(currentTab);
+  $('workers').innerHTML = workers.length ? '' : '<span class="muted">none</span>';
+  for (const w of workers) {
+    const d = document.createElement('span');
+    d.className = 'worker';
+    d.innerHTML = `<strong>${esc(w.title || w.key)}</strong>
+      <span class="muted">${esc(w.last_event_type)}</span>
+      ${w.pane_loc ? `<button onclick="gotoPane('${esc(w.pane_loc)}')">goto</button>` : ''}`;
+    const mv = document.createElement('button');
+    mv.textContent = 'tab ▾';
+    mv.onclick = e => { e.preventDefault(); promptMove('worker', w.key, mv); };
+    d.appendChild(mv);
+    $('workers').appendChild(d);
+  }
+}
+
+// ---- events ----
+let lastRead = 0;  // read marker for the tab currently being rendered
+
+function renderEvent(e) {
+  const div = document.createElement('div');
+  div.className = 'event' + (e.id <= lastRead ? ' read' : '');
+  const pl = paneLoc(e);
+  div.innerHTML = `<div class="top"><span class="type">${esc(e.event_type)}</span>
+      <strong>${esc(e.title)}</strong>
+      ${pl ? `<button onclick="gotoPane('${esc(pl)}', ${e.id})">goto ${esc(pl)}</button>` : ''}
+      <button onclick="markRead(${e.id})" title="mark this and older events read">mark read from here</button>
+      <span class="time">${new Date(e.time).toLocaleTimeString()}</span></div>
+    ${e.description ? `<div class="desc">${esc(e.description)}</div>` : ''}
+    ${e.metadata ? `<pre>${esc(JSON.stringify(e.metadata, null, 2))}</pre>` : ''}`;
+  const k = keyOf(e.metadata);
+  if (k) {
+    const mv = document.createElement('button');
+    mv.textContent = 'tab ▾';
+    mv.onclick = ev => { ev.preventDefault(); promptMove('worker', k, mv); };
+    div.querySelector('.top').insertBefore(mv, div.querySelector('.time'));
+  }
+  return div;
+}
+
+function readBar() {
+  const d = document.createElement('div');
+  d.className = 'read-bar';
+  d.textContent = 'read below';
+  return d;
+}
+
+function renderEvents() {
+  const events = eventsForTab(currentTab);  // newest first
+  lastRead = getTabRead(currentTab);
+  $('events').innerHTML = events.length ? '' : '<span class="muted">none</span>';
+  let barPlaced = false;
+  for (const e of events) {
+    if (!barPlaced && e.id <= lastRead) { $('events').appendChild(readBar()); barPlaced = true; }
+    $('events').appendChild(renderEvent(e));
+  }
+  if (events.length && !barPlaced) $('events').appendChild(readBar());
+}
+
+function markRead(id) {
+  setTabRead(currentTab, id);
+  renderEvents();
+  renderTabs();
+}
+
+// ---- move popup ----
+let closeMovePopup = () => {};
+function promptMove(type, id, anchor) {
+  closeMovePopup();
+  const current = type === 'file' ? getTabForFile(id) : getTabForWorker(id);
+
+  function doMove(target) {
+    assignToTab(target, type, id);
+    closeMovePopup();
+    if (currentTab !== HOME && !loadTabState()[currentTab]) currentTab = HOME;
+    renderAll();
+  }
+
+  const pop = document.createElement('div');
+  pop.className = 'move-pop';
+
+  // Existing tabs as one-click targets (skip the one it's already in).
+  const others = orderedTabNames().filter(n => n !== current);
+  if (others.length) {
+    const list = document.createElement('div'); list.className = 'move-tabs';
+    for (const t of others) {
+      const b = document.createElement('button'); b.textContent = t;
+      b.onclick = () => doMove(t);
+      list.appendChild(b);
+    }
+    pop.appendChild(list);
+  }
+
+  // New-tab input (only needed when creating a tab for the first time).
+  const row = document.createElement('div'); row.className = 'move-row';
+  const input = document.createElement('input'); input.placeholder = 'new tab name';
+  const create = document.createElement('button'); create.textContent = 'create';
+  create.onclick = () => { const n = input.value.trim(); if (n) doMove(n); };
+  row.append(input, create);
+  pop.appendChild(row);
+
+  if (current) {
+    const home = document.createElement('button'); home.textContent = 'move to Home';
+    home.onclick = () => doMove(HOME);
+    pop.appendChild(home);
+  }
+  const cancel = document.createElement('button'); cancel.textContent = 'cancel';
+  cancel.onclick = () => closeMovePopup();
+  pop.appendChild(cancel);
+
+  // Position below the anchor, clamped so the popup stays on-screen.
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  let left = r.left, top = r.bottom + 4;
+  if (left + pop.offsetWidth > vw - 8) left = Math.max(8, vw - pop.offsetWidth - 8);
+  if (top + pop.offsetHeight > vh - 8) top = Math.max(8, r.top - pop.offsetHeight - 4);
+  pop.style.left = (window.scrollX + left) + 'px';
+  pop.style.top = (window.scrollY + top) + 'px';
+  input.focus();
+
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { const n = input.value.trim(); if (n) doMove(n); }
+    if (e.key === 'Escape') closeMovePopup();
+  };
+
+  const onDoc = e => { if (!pop.contains(e.target) && e.target !== anchor) closeMovePopup(); };
+  setTimeout(() => document.addEventListener('click', onDoc), 0);
+  closeMovePopup = () => { document.removeEventListener('click', onDoc); pop.remove(); closeMovePopup = () => {}; };
+}
+
+// ---- data fetches ----
+let homeSeeded = false;
+function seedHomeRead(serverLastRead) {
+  if (homeSeeded) return;
+  homeSeeded = true;
+  const reads = loadReads();
+  if (reads[HOME] === undefined) { reads[HOME] = serverLastRead; saveReads(reads); }
+}
+
+async function loadEvents() {
+  let data;
+  try { data = await fetch('/api/events').then(r => r.json()); } catch { return; }
+  allEvents = data.events || [];
+  seedHomeRead(data.last_read || 0);
+  renderEvents();
+  renderTabs();
+}
+async function loadWorkers() {
+  try { allWorkers = await fetch('/api/workers').then(r => r.json()) || []; } catch { return; }
+  renderWorkers();
+  renderTabs();
+}
+
+async function gotoPane(target, eventId) {
+  const r = await fetch('/api/goto', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ target }) });
+  toast(r.ok ? 'switched to ' + target : 'goto failed: ' + await r.text());
+  if (r.ok && eventId && eventId > getTabRead(currentTab)) markRead(eventId);
+}
+
+// ---- live updates ----
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  $('toasts').appendChild(t);
+  setTimeout(() => t.remove(), 6000);
+}
+
+function setupNotifBtn() {
+  $('notif-btn').style.display = ('Notification' in window && Notification.permission !== 'granted') ? '' : 'none';
+}
+
+function connect() {
+  const es = new EventSource('/api/stream');
+  es.onopen = () => {
+    $('conn').textContent = 'live';
+    loadEvents(); loadWorkers();  // resync anything missed while disconnected
+  };
+  es.onerror = () => {
+    $('conn').textContent = 'disconnected';
+    if (es.readyState === EventSource.CLOSED) {  // browser gave up; retry ourselves
+      es.close();
+      setTimeout(connect, 3000);
+    }
+  };
+  es.onmessage = msg => {
+    const e = JSON.parse(msg.data);
+    loadEvents(); loadWorkers();
+    toast(`${e.event_type}: ${e.title || ''}`);
+    if ('Notification' in window && Notification.permission === 'granted')
+      new Notification(e.title || e.event_type, { body: e.description || e.event_type });
+  };
+}
+
+setupNotifBtn();
+renderTabs();
+connect();
+loadFiles();
+// Periodic tick: refresh task files (replaces the old explicit refresh) and
+// re-tick tab indicators (unread counts + elapsed-time labels).
+setInterval(() => { renderTabs(); loadFiles(); }, 15000);
+</script>
+</body>
+</html>

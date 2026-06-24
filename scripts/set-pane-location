@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+export PANE_LOC=`tmux display-message -p '#{window_name}-#{window_id}-#{pane_id}'`

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+arg="${1:-}"
+if [[ -z "$arg" ]]; then
+  echo "Usage: goto-pane-location <slug-@window-%pane>" >&2
+  exit 1
+fi
+
+window_id=$(echo "$arg" | grep -oE '@[0-9]+')
+pane_id=$(echo "$arg" | grep -oE '%[0-9]+')
+
+if [[ -z "$window_id" || -z "$pane_id" ]]; then
+  echo "Error: could not parse window (@N) and pane (%N) from: $arg" >&2
+  exit 1
+fi
+
+tmux select-window -t "$window_id"
+tmux select-pane -t "$pane_id"
