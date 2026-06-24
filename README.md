@@ -13,6 +13,24 @@ Clone this repo anywhere, then set environment variables:
 | `TASK_QUEUE_PATH` | yes | root directory of your task queue |
 | `TASKBOARD_SCRIPTS_PATH` | for `go run` only | absolute path to the `scripts/` directory in this repo |
 
+## Shell setup
+
+Drop this into your `~/.zshrc` or `~/.bashrc` (edit the two paths). It sets the
+env vars the server uses and auto-exports `PANE_LOC` for every new tmux pane, so
+the UI's "goto" button can jump tmux focus to a worker without any manual steps:
+
+```sh
+# --- taskboard ---
+export TASK_QUEUE_PATH=/path/to/tasks                    # root of your task queue
+export TASKBOARD_SCRIPTS_PATH=/path/to/taskboard/scripts # helper scripts dir
+# source set-pane-location on every new shell; it's a no-op outside tmux
+source "$TASKBOARD_SCRIPTS_PATH/set-pane-location"
+```
+
+`PANE_LOC` is captured once per shell, so split/new panes get their own value
+automatically. If you move a pane or rename its window, re-`source
+set-pane-location` to refresh.
+
 ## Run
 
 Build and run (scripts/ is auto-discovered next to the compiled binary):
@@ -69,7 +87,6 @@ Add to `~/.claude/settings.json` (replace `/path/to/taskboard` with your clone l
 }
 ```
 
-Note: `PANE_LOC` is per-shell, so run `. /path/to/taskboard/scripts/set-pane-location`
-(or export it) in the pane before starting `claude`, otherwise the hook falls back to
-`scripts/get-pane-location` (resolved next to `claude-hook.sh`, or via
-`TASKBOARD_SCRIPTS_PATH` if set).
+Note: `PANE_LOC` is per-shell. With the [Shell setup](#shell-setup) snippet it is
+exported automatically; otherwise the hook falls back to `scripts/get-pane-location`
+(resolved next to `claude-hook.sh`, or via `TASKBOARD_SCRIPTS_PATH` if set).

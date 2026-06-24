@@ -1,2 +1,7 @@
 #!/usr/bin/env bash
-export PANE_LOC=`tmux display-message -p '#{window_name}-#{window_id}-#{pane_id}'`
+# Export PANE_LOC for the current tmux pane. Source this (don't execute) so the
+# export lands in your shell. No-op outside tmux, so it is safe to source from a
+# shell rc unconditionally.
+if [[ -n "${TMUX:-}" ]]; then
+  export PANE_LOC=$(tmux display-message -p '#{window_name}-#{window_id}-#{pane_id}')
+fi
