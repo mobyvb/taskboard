@@ -218,6 +218,19 @@ func (s *Store) Events() []Event {
 	return out
 }
 
+// ForgetWorker removes a worker regardless of its last event, for clearing
+// entries orphaned by a missed session_end (e.g. pane killed without a clean
+// exit). Reports whether the key was present.
+func (s *Store) ForgetWorker(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.workers[key]; !ok {
+		return false
+	}
+	delete(s.workers, key)
+	return true
+}
+
 func (s *Store) Workers() []Worker {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -399,6 +412,21 @@ func main() {
 
 	mux.HandleFunc("GET /api/workers", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, store.Workers())
+	})
+
+	mux.HandleFunc("DELETE /api/workers", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Key string `json:"key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Key == "" {
+			http.Error(w, "key is required", http.StatusBadRequest)
+			return
+		}
+		if !store.ForgetWorker(in.Key) {
+			http.Error(w, "no such worker", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	})
 
 	mux.HandleFunc("GET /api/stream", func(w http.ResponseWriter, r *http.Request) {

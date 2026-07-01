@@ -319,8 +319,22 @@ function renderWorkers() {
     mv.textContent = 'tab ▾';
     mv.onclick = e => { e.preventDefault(); promptMove('worker', w.key, mv); };
     d.appendChild(mv);
+    const forget = document.createElement('button');
+    forget.textContent = 'forget';
+    forget.title = 'remove this worker from the active list';
+    forget.onclick = e => { e.preventDefault(); forgetWorker(w.key); };
+    d.appendChild(forget);
     $('workers').appendChild(d);
   }
+}
+
+async function forgetWorker(key) {
+  if (!confirm('Forget this worker? It will reappear if it sends another event.')) return;
+  const r = await fetch('/api/workers', {
+    method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key })
+  });
+  if (!r.ok) { toast('forget failed: ' + await r.text()); return; }
+  loadWorkers();
 }
 
 // ---- events ----
@@ -328,12 +342,15 @@ let lastRead = 0;  // read marker for the tab currently being rendered
 
 function renderEvent(e) {
   const div = document.createElement('div');
-  div.className = 'event' + (e.id <= lastRead ? ' read' : '');
+  const isRead = e.id <= lastRead;
+  div.className = 'event' + (isRead ? ' read' : '');
   const pl = paneLoc(e);
   div.innerHTML = `<div class="top"><span class="type">${esc(e.event_type)}</span>
       <strong>${esc(e.title)}</strong>
       ${pl ? `<button onclick="gotoPane('${esc(pl)}', ${e.id})">goto ${esc(pl)}</button>` : ''}
-      <button onclick="markRead(${e.id})" title="mark this and older events read">mark read from here</button>
+      ${isRead
+        ? `<button onclick="unreadFrom(${e.id})" title="mark this and newer events unread">unread from here</button>`
+        : `<button onclick="markRead(${e.id})" title="mark this and older events read">mark read from here</button>`}
       <span class="time">${new Date(e.time).toLocaleTimeString()}</span></div>
     ${e.description ? `<div class="desc">${esc(e.description)}</div>` : ''}
     ${e.metadata ? `<pre>${esc(JSON.stringify(e.metadata, null, 2))}</pre>` : ''}`;
@@ -368,6 +385,14 @@ function renderEvents() {
 
 function markRead(id) {
   setTabRead(currentTab, id);
+  renderEvents();
+  renderTabs();
+}
+
+// Undo: push the read marker back below this event so it (and everything
+// newer) shows as unread again.
+function unreadFrom(id) {
+  setTabRead(currentTab, id - 1);
   renderEvents();
   renderTabs();
 }
