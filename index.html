@@ -31,6 +31,10 @@
   .tab-group { color: #6b7280; padding: 0 3px; border-radius: 3px; line-height: 1; }
   .tab-group:hover { background: #3c424e; color: #fff; }
   .tab-group.grouped { color: #b39ddb; }
+  .tab-goto, .tab-loc { color: #6b7280; padding: 0 3px; border-radius: 3px; line-height: 1; }
+  .tab-goto:hover, .tab-loc:hover { background: #3c424e; color: #fff; }
+  .tab-goto { color: #8b95a5; }
+  .tab-loc.set { color: #6fb3d1; }
   .group { display: inline-flex; align-items: center; gap: 6px; }
   .group.active { background: #4a3a6b; border-color: #5a4a82; }
   details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
@@ -51,6 +55,10 @@
   .meta .mi { white-space: nowrap; min-width: 0; }
   /* cwd can be long: let it scroll within its container rather than widen it. */
   .meta .mi.cwd { overflow-x: auto; max-width: 100%; }
+  /* tab/group stand out as colored pills so grouping reads at a glance. */
+  .meta .mi.tab, .meta .mi.group { padding: 1px 9px; border-radius: 9px; font-weight: 600; }
+  .meta .mi.tab { background: #2d4a6b; color: #d3e3f7; }
+  .meta .mi.group { background: #4a3a6b; color: #e7dbf7; }
   .event .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .event .actions button { min-width: 68px; text-align: center; white-space: nowrap; }
   .event details.raw { background: none; border: none; border-radius: 0; margin: 5px 0 0; }
@@ -153,11 +161,14 @@ function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b
 // taskboard_tab_groups:{ [groupName]: string[] }  -- second level: groups of tabs
 const TABS_KEY = 'taskboard_tabs', READS_KEY = 'taskboard_tab_reads', HOME = '__home__';
 const GROUPS_KEY = 'taskboard_tab_groups', ALL = '__all__';
+// Optional tmux "goto" location per tab (a goto target, name-@N-%N).
+const LOCS_KEY = 'taskboard_tab_locs';
+const gotoTargetRe = /^[A-Za-z0-9._-]*@[0-9]+-%[0-9]+$/;
 // The unified event stream is its own read scope (see renderStream); unlike
 // tabs it tracks per-event acknowledgment rather than a cumulative marker.
 const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
 const ACKED_KEY = 'taskboard_stream_acked';
-const STREAM_INITIAL = 20;  // events shown on first load; new arrivals add uncapped
+let streamFloor = null;  // events with id <= this predate the page load and are hidden
 
 function loadTabState() { try { return JSON.parse(localStorage.getItem(TABS_KEY)) || {}; } catch { return {}; } }
 function saveTabState(s) { localStorage.setItem(TABS_KEY, JSON.stringify(s)); }
@@ -183,6 +194,19 @@ function assignTabToGroup(groupName, tabName) {
   }
   for (const [n, tabs] of Object.entries(g)) if (!tabs.length) delete g[n];
   saveGroups(g);
+}
+
+// Per-tab tmux goto location (name-@N-%N), independent of any worker.
+function loadLocs() { try { return JSON.parse(localStorage.getItem(LOCS_KEY)) || {}; } catch { return {}; } }
+function saveLocs(l) { localStorage.setItem(LOCS_KEY, JSON.stringify(l)); }
+function getTabLoc(name) { return loadLocs()[name] || ''; }
+function setTabLoc(name, loc) { const l = loadLocs(); if (loc) l[name] = loc; else delete l[name]; saveLocs(l); }
+// Drop locations for tabs that no longer exist.
+function pruneLocs() {
+  const tabs = loadTabState(), l = loadLocs();
+  let changed = false;
+  for (const name of Object.keys(l)) if (!tabs[name]) { delete l[name]; changed = true; }
+  if (changed) saveLocs(l);
 }
 
 // pruneGroups drops references to tabs that no longer exist and any group left
@@ -338,6 +362,7 @@ function deleteGroup(name) {
 // ---- tab bar ----
 function renderTabs() {
   renderGroups();  // keep the group bar (and its unread badges) in sync
+  pruneLocs();
   const names = [HOME, ...tabsInCurrentGroup()];
   const bar = $('tabbar');
   bar.innerHTML = '';
@@ -350,6 +375,23 @@ function renderTabs() {
       + (last ? `<span class="tab-elapsed">${elapsed(last)}</span>` : '');
     btn.onclick = () => switchTab(name);
     if (name !== HOME) {
+      // One-click tmux goto, shown only when the tab has a saved location.
+      const loc = getTabLoc(name);
+      if (loc) {
+        const go = document.createElement('span');
+        go.className = 'tab-goto';
+        go.textContent = '⇥';
+        go.title = 'go to ' + loc;
+        go.onclick = e => { e.stopPropagation(); gotoPane(loc); };
+        btn.appendChild(go);
+      }
+      // Set/edit/clear the tab's tmux location.
+      const pin = document.createElement('span');
+      pin.className = 'tab-loc' + (loc ? ' set' : '');
+      pin.textContent = '⌖';
+      pin.title = loc ? 'edit tmux location' : 'set a tmux location for quick goto';
+      pin.onclick = e => { e.stopPropagation(); promptLoc(name, pin); };
+      btn.appendChild(pin);
       // Assign this tab to a group; the icon fills in when it belongs to one.
       const group = getGroupForTab(name);
       const grp = document.createElement('span');
@@ -368,8 +410,39 @@ function renderTabs() {
     }
     bar.appendChild(btn);
   }
+  updateFavicon();
 }
 function switchTab(name) { currentTab = name; renderAll(); }
+
+// ---- favicon (unread indicator) ----
+// Total unread across Home + all tabs; drives the favicon's unread dot.
+function totalUnread() {
+  return orderedTabNames().reduce((n, name) => n + tabUnread(name), tabUnread(HOME));
+}
+
+let faviconUnread = null;  // last rendered state, to avoid needless redraws
+function updateFavicon() {
+  const unread = totalUnread() > 0;
+  if (unread === faviconUnread) return;
+  faviconUnread = unread;
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const x = c.getContext('2d');
+  x.fillStyle = '#2d4a6b';
+  if (x.roundRect) { x.beginPath(); x.roundRect(2, 2, 28, 28, 7); x.fill(); }
+  else x.fillRect(2, 2, 28, 28);
+  x.fillStyle = '#dde2e8';
+  x.font = 'bold 20px -apple-system, sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText('T', 16, 18);
+  if (unread) {  // red dot in the corner
+    x.fillStyle = '#e05555';
+    x.beginPath(); x.arc(25, 7, 6, 0, 2 * Math.PI); x.fill();
+  }
+  let link = document.querySelector('link[rel="icon"]');
+  if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+  link.href = c.toDataURL('image/png');
+}
 
 // focusTab switches to a tab and, if needed, reveals it by adjusting the group
 // filter (used to jump from a stream event to its worker's tab). Home is never
@@ -391,6 +464,7 @@ function closeTab(name) {
   const state = loadTabState(), reads = loadReads();
   delete state[name]; delete reads[name];
   saveTabState(state); saveReads(reads);
+  setTabLoc(name, '');
   if (currentTab === name) currentTab = HOME;
   renderAll();
 }
@@ -542,9 +616,9 @@ function eventChips(e, includeTab) {
   if (md.cwd) chips.push(`<span class="mi cwd" title="${esc(md.cwd)}">${esc(abbrevPath(md.cwd))}</span>`);
   if (includeTab && k) {
     const dest = getTabForWorker(k);
-    chips.push(`<span class="mi" title="tab">▤ ${esc(dest || 'Home')}</span>`);
+    chips.push(`<span class="mi tab" title="tab">▤ ${esc(dest || 'Home')}</span>`);
     const grp = dest ? getGroupForTab(dest) : null;
-    if (grp) chips.push(`<span class="mi" title="group">▣ ${esc(grp)}</span>`);
+    if (grp) chips.push(`<span class="mi group" title="group">▣ ${esc(grp)}</span>`);
   }
   return chips;
 }
@@ -716,6 +790,7 @@ function pruneAcked() {
 function streamDeduped() {
   const seen = new Set(), out = [];
   for (const e of [...allEvents].reverse()) {
+    if (e.id <= streamFloor) continue;  // only events that arrived since this page load
     if (e.event_type === 'session_end') continue;  // worker is gone; not stream-worthy
     const k = keyOf(e.metadata) || 'id:' + e.id;
     if (seen.has(k)) continue;
@@ -874,6 +949,48 @@ function promptGroup(tabName, anchor) {
   };
 }
 
+// promptLoc sets/edits/clears a tab's tmux goto location.
+function promptLoc(tabName, anchor) {
+  closeMovePopup();
+  const cur = getTabLoc(tabName);
+
+  const pop = document.createElement('div');
+  pop.className = 'move-pop';
+
+  if (cur) {
+    const go = document.createElement('button');
+    go.textContent = 'goto ' + cur;
+    go.onclick = () => { gotoPane(cur); closeMovePopup(); };
+    pop.appendChild(go);
+  }
+
+  const row = document.createElement('div'); row.className = 'move-row';
+  const input = document.createElement('input');
+  input.placeholder = 'name-@N-%N'; input.value = cur;
+  const save = document.createElement('button'); save.textContent = 'save';
+  const doSave = () => {
+    const v = input.value.trim();
+    if (v && !gotoTargetRe.test(v)) { toast('location must look like name-@N-%N'); return; }
+    setTabLoc(tabName, v); closeMovePopup(); renderTabs();
+  };
+  save.onclick = doSave;
+  row.append(input, save);
+  pop.appendChild(row);
+
+  if (cur) {
+    const clr = document.createElement('button'); clr.textContent = 'clear';
+    clr.onclick = () => { setTabLoc(tabName, ''); closeMovePopup(); renderTabs(); };
+    pop.appendChild(clr);
+  }
+  const cancel = document.createElement('button'); cancel.textContent = 'cancel';
+  cancel.onclick = () => closeMovePopup();
+  pop.appendChild(cancel);
+
+  showPopup(pop, anchor);
+  input.focus();
+  input.onkeydown = e => { if (e.key === 'Enter') doSave(); if (e.key === 'Escape') closeMovePopup(); };
+}
+
 // showPopup appends a popup, positions it below the anchor (clamped on-screen),
 // and wires outside-click dismissal via the shared closeMovePopup handle.
 function showPopup(pop, anchor) {
@@ -899,24 +1016,20 @@ function seedHomeRead(serverLastRead) {
   if (reads[HOME] === undefined) { reads[HOME] = serverLastRead; saveReads(reads); }
 }
 
-// On first load, pre-acknowledge everything except the newest STREAM_INITIAL
-// (deduped) events, so the stream opens with a manageable set rather than the
-// whole backlog. New events arrive unacknowledged from then on.
-let streamSeeded = false;
-function seedStreamAcked() {
-  if (streamSeeded) return;
-  streamSeeded = true;
-  if (localStorage.getItem(ACKED_KEY) !== null) return;
-  const overflow = streamDeduped().slice(STREAM_INITIAL);
-  saveAcked(new Set(overflow.map(e => e.id)));
+// The stream only shows events that arrive after the page loads: on first load
+// we record the newest id as a floor and ignore anything at or below it, so a
+// refresh starts empty and fills only with new activity.
+function initStreamFloor() {
+  if (streamFloor !== null) return;
+  streamFloor = allEvents.reduce((m, e) => Math.max(m, e.id), 0);
 }
 
 async function loadEvents() {
   let data;
   try { data = await fetch('/api/events').then(r => r.json()); } catch { return; }
   allEvents = data.events || [];
+  initStreamFloor();
   seedHomeRead(data.last_read || 0);
-  seedStreamAcked();
   renderEvents();
   renderStream();
   updateStreamBtn();
