@@ -264,6 +264,12 @@ func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
 var gotoTarget = regexp.MustCompile(`^[A-Za-z0-9._-]*@[0-9]+-%[0-9]+$`)
 
+// A tmux pane id, e.g. %151. Validated strictly since it is passed to tmux.
+var paneID = regexp.MustCompile(`^%[0-9]+$`)
+
+// Named tmux keys the UI may send (literal text goes through send-keys -l).
+var paneKey = regexp.MustCompile(`^(Enter|Escape|Tab|Space|BSpace|Up|Down|Left|Right|Home|End|PageUp|PageDown|C-[a-z]|M-[a-z])$`)
+
 func main() {
 	var allow stringList
 	port := flag.Int("port", 8723, "port to listen on (binds 127.0.0.1)")
@@ -476,6 +482,61 @@ func main() {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "output": string(out)})
+	})
+
+	// Return the visible contents of a tmux pane for inline display.
+	mux.HandleFunc("POST /api/pane/capture", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Pane string `json:"pane"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || !paneID.MatchString(in.Pane) {
+			http.Error(w, "pane must match %N", http.StatusBadRequest)
+			return
+		}
+		out, err := exec.Command("tmux", "capture-pane", "-t", in.Pane, "-p").CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("%v: %s", err, out), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"content": string(out)})
+	})
+
+	// Send input to a tmux pane: literal "text" (sent verbatim, spaces and all)
+	// or a single named "key" (Enter, Escape, arrows, C-c, ...). Exactly one.
+	mux.HandleFunc("POST /api/pane/keys", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Pane string `json:"pane"`
+			Text string `json:"text"`
+			Key  string `json:"key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || !paneID.MatchString(in.Pane) {
+			http.Error(w, "pane must match %N", http.StatusBadRequest)
+			return
+		}
+		var args []string
+		switch {
+		case in.Text != "":
+			if len(in.Text) > 500 {
+				http.Error(w, "text must be <= 500 chars", http.StatusBadRequest)
+				return
+			}
+			args = []string{"send-keys", "-t", in.Pane, "-l", "--", in.Text}
+		case in.Key != "":
+			if !paneKey.MatchString(in.Key) {
+				http.Error(w, "unsupported key", http.StatusBadRequest)
+				return
+			}
+			args = []string{"send-keys", "-t", in.Pane, in.Key}
+		default:
+			http.Error(w, "text or key is required", http.StatusBadRequest)
+			return
+		}
+		out, err := exec.Command("tmux", args...).CombinedOutput()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("%v: %s", err, out), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)

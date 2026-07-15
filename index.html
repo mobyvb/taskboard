@@ -46,15 +46,27 @@
   .event pre { border: none; padding: 6px 0 0; max-height: 160px; }
   .event.read { opacity: .55; }
   .event { overflow-wrap: anywhere; }
-  .event .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: #8b95a5; }
-  .event .meta .mi { white-space: nowrap; min-width: 0; }
-  /* cwd can be long: let it scroll within the card rather than widen it. */
-  .event .meta .mi.cwd { overflow-x: auto; max-width: 100%; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #8b95a5; }
+  .event .meta { margin-top: 5px; }
+  .meta .mi { white-space: nowrap; min-width: 0; }
+  /* cwd can be long: let it scroll within its container rather than widen it. */
+  .meta .mi.cwd { overflow-x: auto; max-width: 100%; }
   .event .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .event .actions button { min-width: 68px; text-align: center; white-space: nowrap; }
   .event details.raw { background: none; border: none; border-radius: 0; margin: 5px 0 0; }
   .event details.raw > summary { padding: 0; color: #717c8d; font-size: 11px; }
   .event details.raw pre { border: none; padding: 4px 0 0; }
+  /* pane modal (own layer, above the columns) */
+  #pane-modal { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #pane-modal[hidden] { display: none; }
+  .pane-dialog { display: flex; flex-direction: column; gap: 10px; width: min(1000px, 95vw); max-height: 90vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .pane-dialog-head { display: flex; align-items: center; gap: 10px; }
+  .pane-dialog-head strong { font-size: 14px; }
+  .pane-dialog-head #pane-status { flex: 1; font-size: 11px; }
+  .pane-cap { margin: 0; padding: 10px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
+  .pane-keys { display: flex; flex-wrap: wrap; gap: 6px; }
+  .send-row { display: flex; gap: 6px; }
+  .send-row input { flex: 1; min-width: 0; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 5px 10px; font: 13px monospace; }
   details.ack-fold { background: none; border: none; margin-top: 6px; }
   details.ack-fold > summary { padding: 6px 0; color: #8b95a5; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   .read-bar { display: flex; align-items: center; gap: 8px; color: #e05555; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 10px 0; }
@@ -96,6 +108,30 @@
     <div id="stream-events" class="muted">none</div>
   </section>
 </main>
+<div id="pane-modal" hidden onclick="if (event.target === this) closePaneModal()">
+  <div class="pane-dialog">
+    <div class="pane-dialog-head">
+      <strong id="pane-title">pane</strong>
+      <span id="pane-status" class="muted"></span>
+      <button onclick="refreshPaneModal()">refresh</button>
+      <button onclick="closePaneModal()">close</button>
+    </div>
+    <div id="pane-info" class="meta"></div>
+    <pre id="pane-cap" class="pane-cap">…</pre>
+    <div class="pane-keys">
+      <button onclick="paneSend({key:'Enter'})" title="Enter">⏎ Enter</button>
+      <button onclick="paneSend({key:'Escape'})">Esc</button>
+      <button onclick="paneSend({key:'Up'})">↑</button>
+      <button onclick="paneSend({key:'Down'})">↓</button>
+      <button onclick="paneSend({key:'C-c'})">Ctrl-C</button>
+    </div>
+    <div class="send-row">
+      <input id="pane-input" placeholder="type text — Enter to run, or 'send' to type without running"
+             onkeydown="if (event.key==='Enter'){event.preventDefault(); paneSendText(true);}">
+      <button onclick="paneSendText(false)">send</button>
+    </div>
+  </div>
+</div>
 <div id="toasts"></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -496,6 +532,23 @@ function isEventRead(e, scope) { return scope === STREAM ? isAcked(e.id) : e.id 
 // Collapse a leading $HOME (macOS /Users/x or Linux /home/x) to ~ for display.
 function abbrevPath(p) { return p ? p.replace(/^\/(?:Users|home)\/[^/]+/, '~') : ''; }
 
+// Readonly info chips for an event: pane, cwd, and — when includeTab — the
+// worker's tab and group. Returns an array of HTML strings.
+function eventChips(e, includeTab) {
+  const md = e.metadata || {};
+  const k = keyOf(e.metadata);
+  const chips = [];
+  if (md.pane_loc) chips.push(`<span class="mi" title="tmux pane">⧉ ${esc(md.pane_loc)}</span>`);
+  if (md.cwd) chips.push(`<span class="mi cwd" title="${esc(md.cwd)}">${esc(abbrevPath(md.cwd))}</span>`);
+  if (includeTab && k) {
+    const dest = getTabForWorker(k);
+    chips.push(`<span class="mi" title="tab">▤ ${esc(dest || 'Home')}</span>`);
+    const grp = dest ? getGroupForTab(dest) : null;
+    if (grp) chips.push(`<span class="mi" title="group">▣ ${esc(grp)}</span>`);
+  }
+  return chips;
+}
+
 function renderEvent(e, scope) {
   const isRead = isEventRead(e, scope);
   const div = document.createElement('div');
@@ -504,18 +557,9 @@ function renderEvent(e, scope) {
   const pl = md.pane_loc || '';
   const k = keyOf(e.metadata);
 
-  // Readonly info chips carry the context (pane, cwd, and — in the stream —
-  // the worker's tab and group), keeping the action labels short. Full
-  // metadata stays behind the "raw" expander.
-  const chips = [];
-  if (pl) chips.push(`<span class="mi" title="tmux pane">⧉ ${esc(pl)}</span>`);
-  if (md.cwd) chips.push(`<span class="mi cwd" title="${esc(md.cwd)}">${esc(abbrevPath(md.cwd))}</span>`);
-  if (scope === STREAM && k) {
-    const dest = getTabForWorker(k);
-    chips.push(`<span class="mi" title="tab">▤ ${esc(dest || 'Home')}</span>`);
-    const grp = dest ? getGroupForTab(dest) : null;
-    if (grp) chips.push(`<span class="mi" title="group">▣ ${esc(grp)}</span>`);
-  }
+  // Readonly info chips keep the action labels short; the worker's tab/group
+  // only add value in the stream. Full metadata stays behind "raw".
+  const chips = eventChips(e, scope === STREAM);
 
   div.innerHTML = `<div class="top"><span class="type">${esc(e.event_type)}</span>
       <strong>${esc(e.title)}</strong>
@@ -532,7 +576,9 @@ function renderEvent(e, scope) {
     actions.appendChild(b);
     return b;
   };
+  const paneId = (pl.match(/%\d+/) || [])[0];
   if (pl) add('goto', `switch tmux to ${pl}`, () => gotoPane(pl, e.id, scope));
+  if (paneId) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, e));
   if (scope === STREAM) {
     // Acknowledge this one event (move it below the fold), independent of others.
     add(isRead ? 'un-ack' : 'ack',
@@ -560,6 +606,62 @@ function renderEvent(e, scope) {
     div.appendChild(raw);
   }
   return div;
+}
+
+// ---- pane modal ----
+// The tmux tunnel opens in a modal on its own layer (the pane is usually wider
+// and taller than an event card), auto-refreshing its capture while open.
+let paneModal = { id: null, timer: null };
+
+function openPaneModal(paneId, e) {
+  paneModal.id = paneId;
+  $('pane-title').textContent = 'pane ' + paneId;
+  $('pane-status').textContent = '';
+  $('pane-info').innerHTML = eventChips(e, true).join('');  // context hidden behind the modal
+  $('pane-input').value = '';
+  $('pane-modal').hidden = false;
+  refreshPaneModal();
+  clearInterval(paneModal.timer);
+  paneModal.timer = setInterval(refreshPaneModal, 1500);  // keep the view live
+  $('pane-input').focus();
+}
+
+function closePaneModal() {
+  clearInterval(paneModal.timer);
+  paneModal = { id: null, timer: null };
+  $('pane-modal').hidden = true;
+}
+
+async function refreshPaneModal() {
+  if (!paneModal.id) return;
+  try {
+    $('pane-cap').textContent = (await capturePane(paneModal.id)) || '(empty)';
+    $('pane-status').textContent = '';
+  } catch (err) { $('pane-status').textContent = 'capture error'; }
+}
+
+// send one payload ({text} or {key}) to the open pane, then refresh soon after.
+async function paneSend(payload) {
+  if (!paneModal.id) return;
+  try { await sendPaneKeys({ pane: paneModal.id, ...payload }); }
+  catch (err) { toast('send failed: ' + err.message); return; }
+  setTimeout(refreshPaneModal, 120);
+}
+
+// Send the typed text; with submit=true, follow it with Enter (i.e. run it).
+async function paneSendText(submit) {
+  const text = $('pane-input').value;
+  if (text) await paneSend({ text });
+  if (submit) await paneSend({ key: 'Enter' });
+  $('pane-input').value = '';
+  $('pane-input').focus();
+}
+
+function readBar() {
+  const d = document.createElement('div');
+  d.className = 'read-bar';
+  d.textContent = 'read below';
+  return d;
 }
 
 function readBar() {
@@ -614,6 +716,7 @@ function pruneAcked() {
 function streamDeduped() {
   const seen = new Set(), out = [];
   for (const e of [...allEvents].reverse()) {
+    if (e.event_type === 'session_end') continue;  // worker is gone; not stream-worthy
     const k = keyOf(e.metadata) || 'id:' + e.id;
     if (seen.has(k)) continue;
     seen.add(k);
@@ -825,14 +928,24 @@ async function loadWorkers() {
   renderTabs();
 }
 
+// ---- tmux pane tunnelling ----
+async function capturePane(pane) {
+  const r = await fetch('/api/pane/capture', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ pane }) });
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()).content;
+}
+// payload is {pane, text} for literal text or {pane, key} for a named key.
+async function sendPaneKeys(payload) {
+  const r = await fetch('/api/pane/keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+  if (!r.ok) throw new Error(await r.text());
+}
+
 async function gotoPane(target, eventId, scope = currentTab) {
   const r = await fetch('/api/goto', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ target }) });
   toast(r.ok ? 'switched to ' + target : 'goto failed: ' + await r.text());
-  if (!r.ok || !eventId) return;
-  // Jumping to a pane handles that event: ack it in the stream, advance the
-  // tab marker in a per-tab queue.
-  if (scope === STREAM) { ackEvent(eventId); renderStream(); updateStreamBtn(); }
-  else if (eventId > getTabRead(scope)) applyRead(scope, eventId);
+  // In a tab queue, jumping to the pane advances the read marker; the stream
+  // leaves acknowledgment explicit (like focus).
+  if (r.ok && eventId && scope !== STREAM && eventId > getTabRead(scope)) applyRead(scope, eventId);
 }
 
 // ---- live updates ----
@@ -882,6 +995,8 @@ loadWorkers();
 // Periodic tick: refresh task files (replaces the old explicit refresh) and
 // re-tick tab indicators (unread counts + elapsed-time labels).
 setInterval(() => { renderTabs(); loadFiles(); }, 15000);
+// Escape closes the pane modal.
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pane-modal').hidden) closePaneModal(); });
 </script>
 </body>
 </html>

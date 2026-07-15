@@ -66,6 +66,8 @@ read marker survive restarts, workers are rebuilt by replaying events).
 | `GET /api/workers` | active workers (keyed by `metadata.session_id`/`pane_loc`; removed on `session_end`) |
 | `GET /api/stream` | SSE stream of new events (drives UI toasts/notifications) |
 | `POST /api/goto` | `{target: "slug-@N-%N"}` — runs `goto-pane-location target` |
+| `POST /api/pane/capture` | `{pane: "%N"}` — visible contents of the tmux pane (`capture-pane -p`) |
+| `POST /api/pane/keys` | `{pane: "%N", text: "..."}` (literal) or `{pane: "%N", key: "Enter"}` (named key) |
 
 ## Claude Code hooks
 
