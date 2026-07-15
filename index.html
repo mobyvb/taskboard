@@ -12,7 +12,13 @@
   nav#groupbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #15181d; border-bottom: 1px solid #2c313a; }
   nav#tabbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #181b21; border-bottom: 1px solid #2c313a; }
   main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; align-items: start; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  main.with-stream { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 900px) { main, main.with-stream { grid-template-columns: 1fr; } }
+  /* min-width:0 keeps a wide child (e.g. a long cwd) from stretching the grid track past the viewport. */
+  main > section { min-width: 0; }
+  #stream-col { border-left: 1px solid #2c313a; padding-left: 20px; }
+  #stream-events { max-height: 82vh; overflow-y: auto; overflow-x: hidden; }
+  @media (max-width: 900px) { #stream-col { border-left: none; padding-left: 0; border-top: 1px solid #2c313a; padding-top: 16px; } }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b95a5; margin: 0 0 10px; }
   button { background: #2c313a; color: #dde2e8; border: 1px solid #3c424e; border-radius: 5px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
   button:hover { background: #3c424e; }
@@ -39,6 +45,18 @@
   .event .desc { color: #9aa4b4; margin: 4px 0; }
   .event pre { border: none; padding: 6px 0 0; max-height: 160px; }
   .event.read { opacity: .55; }
+  .event { overflow-wrap: anywhere; }
+  .event .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; font-size: 12px; color: #8b95a5; }
+  .event .meta .mi { white-space: nowrap; min-width: 0; }
+  /* cwd can be long: let it scroll within the card rather than widen it. */
+  .event .meta .mi.cwd { overflow-x: auto; max-width: 100%; }
+  .event .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .event .actions button { min-width: 68px; text-align: center; white-space: nowrap; }
+  .event details.raw { background: none; border: none; border-radius: 0; margin: 5px 0 0; }
+  .event details.raw > summary { padding: 0; color: #717c8d; font-size: 11px; }
+  .event details.raw pre { border: none; padding: 4px 0 0; }
+  details.ack-fold { background: none; border: none; margin-top: 6px; }
+  details.ack-fold > summary { padding: 6px 0; color: #8b95a5; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   .read-bar { display: flex; align-items: center; gap: 8px; color: #e05555; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 10px 0; }
   .read-bar::before, .read-bar::after { content: ''; flex: 1; border-top: 2px solid #e05555; }
   .worker { display: inline-flex; gap: 8px; align-items: center; background: #1c2b22; border: 1px solid #2f4a3a; border-radius: 6px; padding: 5px 10px; margin: 0 8px 8px 0; }
@@ -56,6 +74,7 @@
   <header>
     <h1>taskboard</h1>
     <span id="conn" class="muted">connecting…</span>
+    <button id="stream-btn" onclick="toggleStream()">stream</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
   </header>
   <nav id="groupbar"></nav>
@@ -71,6 +90,10 @@
     <div id="workers" class="muted">none</div>
     <h2 style="margin-top:20px">Worker events</h2>
     <div id="events" class="muted">none</div>
+  </section>
+  <section id="stream-col" hidden>
+    <h2>Event stream <span class="muted" style="text-transform:none;letter-spacing:0">(all events, arrival order)</span></h2>
+    <div id="stream-events" class="muted">none</div>
   </section>
 </main>
 <div id="toasts"></div>
@@ -94,6 +117,11 @@ function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b
 // taskboard_tab_groups:{ [groupName]: string[] }  -- second level: groups of tabs
 const TABS_KEY = 'taskboard_tabs', READS_KEY = 'taskboard_tab_reads', HOME = '__home__';
 const GROUPS_KEY = 'taskboard_tab_groups', ALL = '__all__';
+// The unified event stream is its own read scope (see renderStream); unlike
+// tabs it tracks per-event acknowledgment rather than a cumulative marker.
+const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
+const ACKED_KEY = 'taskboard_stream_acked';
+const STREAM_INITIAL = 20;  // events shown on first load; new arrivals add uncapped
 
 function loadTabState() { try { return JSON.parse(localStorage.getItem(TABS_KEY)) || {}; } catch { return {}; } }
 function saveTabState(s) { localStorage.setItem(TABS_KEY, JSON.stringify(s)); }
@@ -183,7 +211,6 @@ let currentGroup = ALL;  // which group's tabs the tab bar is filtered to (ALL =
 // A worker's identity: session_id first (matches the server's worker key),
 // pane_loc as fallback.
 function keyOf(meta) { try { return meta?.session_id || meta?.pane_loc || null; } catch { return null; } }
-function paneLoc(e) { try { return e.metadata?.pane_loc || null; } catch { return null; } }
 
 function filesForTab(tabName) { return allFiles.filter(f => tabFilter(tabName, 'file', f.path)); }
 function workersForTab(tabName) { return allWorkers.filter(w => tabFilter(tabName, 'worker', w.key)); }
@@ -307,6 +334,19 @@ function renderTabs() {
   }
 }
 function switchTab(name) { currentTab = name; renderAll(); }
+
+// focusTab switches to a tab and, if needed, reveals it by adjusting the group
+// filter (used to jump from a stream event to its worker's tab). Home is never
+// grouped, so it's always reachable.
+function focusTab(name) {
+  currentTab = name;
+  if (name !== HOME) {
+    const g = getGroupForTab(name);
+    if (g) currentGroup = g;
+    else if (!tabsInCurrentGroup().includes(name)) currentGroup = ALL;
+  }
+  renderAll();
+}
 
 // closeTab forgets a tab and its read marker. Its files/workers are no longer
 // claimed by any tab, so they (and their events) fall back to Home.
@@ -448,28 +488,76 @@ async function forgetWorker(key) {
 }
 
 // ---- events ----
-let lastRead = 0;  // read marker for the tab currently being rendered
+// Events render under a "scope": a tab name for the per-tab queue, or STREAM
+// for the unified stream. Tabs use a cumulative read marker; the stream tracks
+// per-event acknowledgment. Neither ever affects the other.
+function isEventRead(e, scope) { return scope === STREAM ? isAcked(e.id) : e.id <= getTabRead(scope); }
 
-function renderEvent(e) {
+// Collapse a leading $HOME (macOS /Users/x or Linux /home/x) to ~ for display.
+function abbrevPath(p) { return p ? p.replace(/^\/(?:Users|home)\/[^/]+/, '~') : ''; }
+
+function renderEvent(e, scope) {
+  const isRead = isEventRead(e, scope);
   const div = document.createElement('div');
-  const isRead = e.id <= lastRead;
   div.className = 'event' + (isRead ? ' read' : '');
-  const pl = paneLoc(e);
+  const md = e.metadata || {};
+  const pl = md.pane_loc || '';
+  const k = keyOf(e.metadata);
+
+  // Readonly info chips carry the context (pane, cwd, and — in the stream —
+  // the worker's tab and group), keeping the action labels short. Full
+  // metadata stays behind the "raw" expander.
+  const chips = [];
+  if (pl) chips.push(`<span class="mi" title="tmux pane">⧉ ${esc(pl)}</span>`);
+  if (md.cwd) chips.push(`<span class="mi cwd" title="${esc(md.cwd)}">${esc(abbrevPath(md.cwd))}</span>`);
+  if (scope === STREAM && k) {
+    const dest = getTabForWorker(k);
+    chips.push(`<span class="mi" title="tab">▤ ${esc(dest || 'Home')}</span>`);
+    const grp = dest ? getGroupForTab(dest) : null;
+    if (grp) chips.push(`<span class="mi" title="group">▣ ${esc(grp)}</span>`);
+  }
+
   div.innerHTML = `<div class="top"><span class="type">${esc(e.event_type)}</span>
       <strong>${esc(e.title)}</strong>
-      ${pl ? `<button onclick="gotoPane('${esc(pl)}', ${e.id})">goto ${esc(pl)}</button>` : ''}
-      ${isRead
-        ? `<button onclick="unreadFrom(${e.id})" title="mark this and newer events unread">unread from here</button>`
-        : `<button onclick="markRead(${e.id})" title="mark this and older events read">mark read from here</button>`}
       <span class="time">${new Date(e.time).toLocaleTimeString()}</span></div>
     ${e.description ? `<div class="desc">${esc(e.description)}</div>` : ''}
-    ${e.metadata ? `<pre>${esc(JSON.stringify(e.metadata, null, 2))}</pre>` : ''}`;
-  const k = keyOf(e.metadata);
+    ${chips.length ? `<div class="meta">${chips.join('')}</div>` : ''}`;
+
+  // Actions live in their own uniform row rather than inline in the header.
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const add = (text, title, onclick) => {
+    const b = document.createElement('button');
+    b.textContent = text; if (title) b.title = title; b.onclick = onclick;
+    actions.appendChild(b);
+    return b;
+  };
+  if (pl) add('goto', `switch tmux to ${pl}`, () => gotoPane(pl, e.id, scope));
+  if (scope === STREAM) {
+    // Acknowledge this one event (move it below the fold), independent of others.
+    add(isRead ? 'un-ack' : 'ack',
+        isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
+        () => { isRead ? unackEvent(e.id) : ackEvent(e.id); renderStream(); updateStreamBtn(); });
+  } else {
+    add(isRead ? 'unread' : 'mark read',
+        isRead ? 'mark this and newer events unread' : 'mark this and older events read',
+        () => applyRead(scope, isRead ? e.id - 1 : e.id));
+  }
   if (k) {
-    const mv = document.createElement('button');
-    mv.textContent = 'tab ▾';
-    mv.onclick = ev => { ev.preventDefault(); promptMove('worker', k, mv); };
-    div.querySelector('.top').insertBefore(mv, div.querySelector('.time'));
+    // From the stream, jump to the worker's tab (its per-tab queue lives there).
+    if (scope === STREAM) {
+      const dest = getTabForWorker(k) || HOME;
+      add('focus', "switch to this worker's tab", () => focusTab(dest));
+    }
+    const mv = add('tab ▾', 'assign this worker to a tab', ev => { ev.preventDefault(); promptMove('worker', k, mv); });
+  }
+  div.appendChild(actions);
+
+  if (e.metadata) {
+    const raw = document.createElement('details');
+    raw.className = 'raw';
+    raw.innerHTML = `<summary>raw</summary><pre>${esc(JSON.stringify(e.metadata, null, 2))}</pre>`;
+    div.appendChild(raw);
   }
   return div;
 }
@@ -481,30 +569,103 @@ function readBar() {
   return d;
 }
 
-function renderEvents() {
-  const events = eventsForTab(currentTab);  // newest first
-  lastRead = getTabRead(currentTab);
-  $('events').innerHTML = events.length ? '' : '<span class="muted">none</span>';
+// renderList paints an event list into host under a read scope, inserting the
+// "read below" divider at the first read event.
+function renderList(host, events, scope) {
+  const read = getTabRead(scope);
+  host.innerHTML = events.length ? '' : '<span class="muted">none</span>';
   let barPlaced = false;
   for (const e of events) {
-    if (!barPlaced && e.id <= lastRead) { $('events').appendChild(readBar()); barPlaced = true; }
-    $('events').appendChild(renderEvent(e));
+    if (!barPlaced && e.id <= read) { host.appendChild(readBar()); barPlaced = true; }
+    host.appendChild(renderEvent(e, scope));
   }
-  if (events.length && !barPlaced) $('events').appendChild(readBar());
+  if (events.length && !barPlaced) host.appendChild(readBar());
 }
 
-function markRead(id) {
-  setTabRead(currentTab, id);
+function renderEvents() { renderList($('events'), eventsForTab(currentTab), currentTab); }
+
+// applyRead moves a tab's cumulative read marker and repaints; also refreshes
+// the tab/group bars whose badges track per-tab reads.
+function applyRead(scope, id) {
+  setTabRead(scope, id);
   renderEvents();
   renderTabs();
 }
 
-// Undo: push the read marker back below this event so it (and everything
-// newer) shows as unread again.
-function unreadFrom(id) {
-  setTabRead(currentTab, id - 1);
-  renderEvents();
-  renderTabs();
+// ---- unified event stream ----
+// A single firehose of every event across all workers, in arrival order
+// (newest first), independent of the current tab/group. Toggled into its own
+// column; never affects the per-tab queue. Events are acknowledged one at a
+// time (not a running marker), since the stream interleaves many workers.
+function loadAcked() { try { return new Set(JSON.parse(localStorage.getItem(ACKED_KEY)) || []); } catch { return new Set(); } }
+function saveAcked(s) { localStorage.setItem(ACKED_KEY, JSON.stringify([...s])); }
+function isAcked(id) { return loadAcked().has(id); }
+function ackEvent(id) { const s = loadAcked(); s.add(id); saveAcked(s); }
+function unackEvent(id) { const s = loadAcked(); s.delete(id); saveAcked(s); }
+// Drop acks for events that have since aged out of the store.
+function pruneAcked() {
+  const s = loadAcked(), ids = new Set(allEvents.map(e => e.id));
+  let changed = false;
+  for (const id of s) if (!ids.has(id)) { s.delete(id); changed = true; }
+  if (changed) saveAcked(s);
+}
+// One event per worker (newest first), like the per-tab queue — the global
+// stream is too noisy with every event. Keyless events stand on their own.
+function streamDeduped() {
+  const seen = new Set(), out = [];
+  for (const e of [...allEvents].reverse()) {
+    const k = keyOf(e.metadata) || 'id:' + e.id;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  return out;
+}
+function streamUnread() { const s = loadAcked(); return streamDeduped().filter(e => !s.has(e.id)).length; }
+
+function renderStream() {
+  if (!isStreamOpen()) return;
+  pruneAcked();
+  const acked = loadAcked();
+  const events = streamDeduped();  // newest per worker
+  const unacked = events.filter(e => !acked.has(e.id));
+  const done = events.filter(e => acked.has(e.id));
+  const host = $('stream-events');
+  host.innerHTML = '';
+  for (const e of unacked) host.appendChild(renderEvent(e, STREAM));
+  if (!unacked.length) {
+    const m = document.createElement('span'); m.className = 'muted';
+    m.textContent = 'nothing unacknowledged'; host.appendChild(m);
+  }
+  // Acknowledged events collapse into a fold below, retrievable but out of the way.
+  if (done.length) {
+    const d = document.createElement('details'); d.className = 'ack-fold';
+    d.innerHTML = `<summary>acknowledged (${done.length})</summary>`;
+    for (const e of done) d.appendChild(renderEvent(e, STREAM));
+    host.appendChild(d);
+  }
+}
+
+function isStreamOpen() { return localStorage.getItem(STREAM_OPEN_KEY) === '1'; }
+
+// Reflect stream open/closed state in the layout and header button; called on
+// load and whenever the stream is toggled.
+function applyStreamVisibility() {
+  const open = isStreamOpen();
+  $('stream-col').hidden = !open;
+  document.querySelector('main').classList.toggle('with-stream', open);
+  updateStreamBtn();
+  if (open) renderStream();
+}
+
+function updateStreamBtn() {
+  const u = streamUnread();
+  $('stream-btn').textContent = (isStreamOpen() ? 'hide stream' : 'stream') + (u ? ` (${u})` : '');
+}
+
+function toggleStream() {
+  localStorage.setItem(STREAM_OPEN_KEY, isStreamOpen() ? '0' : '1');
+  applyStreamVisibility();
 }
 
 // ---- move popup ----
@@ -635,12 +796,27 @@ function seedHomeRead(serverLastRead) {
   if (reads[HOME] === undefined) { reads[HOME] = serverLastRead; saveReads(reads); }
 }
 
+// On first load, pre-acknowledge everything except the newest STREAM_INITIAL
+// (deduped) events, so the stream opens with a manageable set rather than the
+// whole backlog. New events arrive unacknowledged from then on.
+let streamSeeded = false;
+function seedStreamAcked() {
+  if (streamSeeded) return;
+  streamSeeded = true;
+  if (localStorage.getItem(ACKED_KEY) !== null) return;
+  const overflow = streamDeduped().slice(STREAM_INITIAL);
+  saveAcked(new Set(overflow.map(e => e.id)));
+}
+
 async function loadEvents() {
   let data;
   try { data = await fetch('/api/events').then(r => r.json()); } catch { return; }
   allEvents = data.events || [];
   seedHomeRead(data.last_read || 0);
+  seedStreamAcked();
   renderEvents();
+  renderStream();
+  updateStreamBtn();
   renderTabs();
 }
 async function loadWorkers() {
@@ -649,10 +825,14 @@ async function loadWorkers() {
   renderTabs();
 }
 
-async function gotoPane(target, eventId) {
+async function gotoPane(target, eventId, scope = currentTab) {
   const r = await fetch('/api/goto', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ target }) });
   toast(r.ok ? 'switched to ' + target : 'goto failed: ' + await r.text());
-  if (r.ok && eventId && eventId > getTabRead(currentTab)) markRead(eventId);
+  if (!r.ok || !eventId) return;
+  // Jumping to a pane handles that event: ack it in the stream, advance the
+  // tab marker in a per-tab queue.
+  if (scope === STREAM) { ackEvent(eventId); renderStream(); updateStreamBtn(); }
+  else if (eventId > getTabRead(scope)) applyRead(scope, eventId);
 }
 
 // ---- live updates ----
@@ -691,6 +871,7 @@ function connect() {
 }
 
 setupNotifBtn();
+applyStreamVisibility();
 renderTabs();
 connect();
 // Load everything up front so the first paint doesn't wait on the SSE
