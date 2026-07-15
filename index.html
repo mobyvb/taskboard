@@ -9,6 +9,7 @@
   .topbar { position: sticky; top: 0; z-index: 5; }
   header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: #1c1f26; border-bottom: 1px solid #2c313a; }
   h1 { font-size: 16px; margin: 0; flex: 1; }
+  nav#groupbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #15181d; border-bottom: 1px solid #2c313a; }
   nav#tabbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #181b21; border-bottom: 1px solid #2c313a; }
   main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; align-items: start; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
@@ -21,6 +22,11 @@
   .tab-elapsed { color: #8b95a5; font-size: 10px; }
   .tab-close { color: #8b95a5; font-weight: 700; padding: 0 3px; border-radius: 3px; line-height: 1; }
   .tab-close:hover { background: #e05555; color: #fff; }
+  .tab-group { color: #6b7280; padding: 0 3px; border-radius: 3px; line-height: 1; }
+  .tab-group:hover { background: #3c424e; color: #fff; }
+  .tab-group.grouped { color: #b39ddb; }
+  .group { display: inline-flex; align-items: center; gap: 6px; }
+  .group.active { background: #4a3a6b; border-color: #5a4a82; }
   details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
   summary { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
   summary code { flex: 1; }
@@ -52,6 +58,7 @@
     <span id="conn" class="muted">connecting…</span>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
   </header>
+  <nav id="groupbar"></nav>
   <nav id="tabbar"></nav>
 </div>
 <main>
@@ -84,12 +91,48 @@ function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b
 // ---- tab state (localStorage) ----
 // taskboard_tabs:      { [tabName]: { files: string[], workers: string[] } }
 // taskboard_tab_reads: { "__home__": lastReadId, [tabName]: lastReadId }
+// taskboard_tab_groups:{ [groupName]: string[] }  -- second level: groups of tabs
 const TABS_KEY = 'taskboard_tabs', READS_KEY = 'taskboard_tab_reads', HOME = '__home__';
+const GROUPS_KEY = 'taskboard_tab_groups', ALL = '__all__';
 
 function loadTabState() { try { return JSON.parse(localStorage.getItem(TABS_KEY)) || {}; } catch { return {}; } }
 function saveTabState(s) { localStorage.setItem(TABS_KEY, JSON.stringify(s)); }
 function loadReads() { try { return JSON.parse(localStorage.getItem(READS_KEY)) || {}; } catch { return {}; } }
 function saveReads(r) { localStorage.setItem(READS_KEY, JSON.stringify(r)); }
+function loadGroups() { try { return JSON.parse(localStorage.getItem(GROUPS_KEY)) || {}; } catch { return {}; } }
+function saveGroups(g) { localStorage.setItem(GROUPS_KEY, JSON.stringify(g)); }
+
+// The group a tab belongs to, or null if ungrouped.
+function getGroupForTab(tabName) {
+  for (const [g, tabs] of Object.entries(loadGroups())) if (tabs.includes(tabName)) return g;
+  return null;
+}
+
+// assignTabToGroup moves a tab into a group; groupName === ALL (or empty) unassigns
+// it. A tab lives in at most one group. Groups left empty are pruned.
+function assignTabToGroup(groupName, tabName) {
+  const g = loadGroups();
+  for (const tabs of Object.values(g)) { const i = tabs.indexOf(tabName); if (i >= 0) tabs.splice(i, 1); }
+  if (groupName && groupName !== ALL) {
+    const tabs = g[groupName] || (g[groupName] = []);
+    if (!tabs.includes(tabName)) tabs.push(tabName);
+  }
+  for (const [n, tabs] of Object.entries(g)) if (!tabs.length) delete g[n];
+  saveGroups(g);
+}
+
+// pruneGroups drops references to tabs that no longer exist and any group left
+// empty, so closing/pruning a tab can't leave a stale group behind.
+function pruneGroups() {
+  const tabs = loadTabState(), g = loadGroups();
+  let changed = false;
+  for (const [name, list] of Object.entries(g)) {
+    const kept = list.filter(t => tabs[t]);
+    if (kept.length !== list.length) { g[name] = kept; changed = true; }
+    if (!kept.length) { delete g[name]; changed = true; }
+  }
+  if (changed) saveGroups(g);
+}
 
 function getTabForFile(path) {
   for (const [n, t] of Object.entries(loadTabState())) if (t.files?.includes(path)) return n;
@@ -135,6 +178,7 @@ function tabFilter(tabName, type, id) {
 let allFiles = [], allWorkers = [], allEvents = [];
 let renderedFilePaths = [];
 let currentTab = HOME;
+let currentGroup = ALL;  // which group's tabs the tab bar is filtered to (ALL = every tab)
 
 // A worker's identity: session_id first (matches the server's worker key),
 // pane_loc as fallback.
@@ -171,9 +215,67 @@ function orderedTabNames() {
   return Object.keys(loadTabState()).sort((a, b) => tabActivity(b) - tabActivity(a) || a.localeCompare(b));
 }
 
+// A group's activity/unread aggregate over its member tabs.
+function groupActivity(g) { return (loadGroups()[g] || []).reduce((m, t) => Math.max(m, tabActivity(t)), 0); }
+function groupUnread(g) { return (loadGroups()[g] || []).reduce((s, t) => s + tabUnread(t), 0); }
+// Groups ordered most-recent first; ties broken by name.
+function orderedGroupNames() {
+  return Object.keys(loadGroups()).sort((a, b) => groupActivity(b) - groupActivity(a) || a.localeCompare(b));
+}
+// Named tabs visible under the current group (ALL = every tab). Home is always
+// shown by renderTabs and is not part of any group.
+function tabsInCurrentGroup() {
+  const all = orderedTabNames();
+  if (currentGroup === ALL) return all;
+  const set = new Set(loadGroups()[currentGroup] || []);
+  return all.filter(n => set.has(n));
+}
+
+// ---- group bar (second level: groups of tabs) ----
+function renderGroups() {
+  pruneGroups();
+  const bar = $('groupbar');
+  if (currentGroup !== ALL && !loadGroups()[currentGroup]) currentGroup = ALL;
+  const names = orderedGroupNames();
+  // No groups defined → hide the bar entirely; the tab bar behaves as before.
+  if (!names.length) { bar.innerHTML = ''; bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  bar.innerHTML = '';
+  for (const name of [ALL, ...names]) {
+    const btn = document.createElement('button');
+    btn.className = 'group' + (name === currentGroup ? ' active' : '');
+    const unread = name === ALL ? 0 : groupUnread(name);
+    btn.innerHTML = `<span>${name === ALL ? 'All' : esc(name)}</span>`
+      + (unread ? `<span class="tab-badge">${unread}</span>` : '');
+    btn.onclick = () => switchGroup(name);
+    if (name !== ALL) {
+      const x = document.createElement('span');
+      x.className = 'tab-close';
+      x.textContent = '×';
+      x.title = 'delete group (its tabs become ungrouped)';
+      x.onclick = e => { e.stopPropagation(); deleteGroup(name); };
+      btn.appendChild(x);
+    }
+    bar.appendChild(btn);
+  }
+}
+// Switching group filters the tab bar; if the active tab isn't in the new group,
+// fall back to Home (which is never grouped).
+function switchGroup(name) {
+  currentGroup = name;
+  if (currentTab !== HOME && !tabsInCurrentGroup().includes(currentTab)) currentTab = HOME;
+  renderAll();
+}
+function deleteGroup(name) {
+  const g = loadGroups(); delete g[name]; saveGroups(g);
+  if (currentGroup === name) currentGroup = ALL;
+  renderAll();
+}
+
 // ---- tab bar ----
 function renderTabs() {
-  const names = [HOME, ...orderedTabNames()];
+  renderGroups();  // keep the group bar (and its unread badges) in sync
+  const names = [HOME, ...tabsInCurrentGroup()];
   const bar = $('tabbar');
   bar.innerHTML = '';
   for (const name of names) {
@@ -184,8 +286,16 @@ function renderTabs() {
       + (unread ? `<span class="tab-badge">${unread}</span>` : '')
       + (last ? `<span class="tab-elapsed">${elapsed(last)}</span>` : '');
     btn.onclick = () => switchTab(name);
-    // Closing a tab (×) returns its files/workers/events to Home.
     if (name !== HOME) {
+      // Assign this tab to a group; the icon fills in when it belongs to one.
+      const group = getGroupForTab(name);
+      const grp = document.createElement('span');
+      grp.className = 'tab-group' + (group ? ' grouped' : '');
+      grp.textContent = group ? '◈' : '◇';
+      grp.title = group ? `in group "${group}" — reassign` : 'assign tab to a group';
+      grp.onclick = e => { e.stopPropagation(); promptGroup(name, grp); };
+      btn.appendChild(grp);
+      // Closing a tab (×) returns its files/workers/events to Home.
       const x = document.createElement('span');
       x.className = 'tab-close';
       x.textContent = '×';
@@ -442,7 +552,67 @@ function promptMove(type, id, anchor) {
   cancel.onclick = () => closeMovePopup();
   pop.appendChild(cancel);
 
-  // Position below the anchor, clamped so the popup stays on-screen.
+  showPopup(pop, anchor);
+  input.focus();
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { const n = input.value.trim(); if (n) doMove(n); }
+    if (e.key === 'Escape') closeMovePopup();
+  };
+}
+
+// promptGroup assigns a tab to a group (mirrors promptMove for tabs → groups).
+function promptGroup(tabName, anchor) {
+  closeMovePopup();
+  const current = getGroupForTab(tabName);
+
+  function doAssign(target) {
+    assignTabToGroup(target, tabName);
+    closeMovePopup();
+    if (currentGroup !== ALL && !tabsInCurrentGroup().includes(currentTab)) currentTab = HOME;
+    renderAll();
+  }
+
+  const pop = document.createElement('div');
+  pop.className = 'move-pop';
+
+  const others = orderedGroupNames().filter(n => n !== current);
+  if (others.length) {
+    const list = document.createElement('div'); list.className = 'move-tabs';
+    for (const g of others) {
+      const b = document.createElement('button'); b.textContent = g;
+      b.onclick = () => doAssign(g);
+      list.appendChild(b);
+    }
+    pop.appendChild(list);
+  }
+
+  const row = document.createElement('div'); row.className = 'move-row';
+  const input = document.createElement('input'); input.placeholder = 'new group name';
+  const create = document.createElement('button'); create.textContent = 'create';
+  create.onclick = () => { const n = input.value.trim(); if (n) doAssign(n); };
+  row.append(input, create);
+  pop.appendChild(row);
+
+  if (current) {
+    const rm = document.createElement('button'); rm.textContent = 'remove from group';
+    rm.onclick = () => doAssign(ALL);
+    pop.appendChild(rm);
+  }
+  const cancel = document.createElement('button'); cancel.textContent = 'cancel';
+  cancel.onclick = () => closeMovePopup();
+  pop.appendChild(cancel);
+
+  showPopup(pop, anchor);
+  input.focus();
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { const n = input.value.trim(); if (n) doAssign(n); }
+    if (e.key === 'Escape') closeMovePopup();
+  };
+}
+
+// showPopup appends a popup, positions it below the anchor (clamped on-screen),
+// and wires outside-click dismissal via the shared closeMovePopup handle.
+function showPopup(pop, anchor) {
   document.body.appendChild(pop);
   const r = anchor.getBoundingClientRect();
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
@@ -451,13 +621,6 @@ function promptMove(type, id, anchor) {
   if (top + pop.offsetHeight > vh - 8) top = Math.max(8, r.top - pop.offsetHeight - 4);
   pop.style.left = (window.scrollX + left) + 'px';
   pop.style.top = (window.scrollY + top) + 'px';
-  input.focus();
-
-  input.onkeydown = e => {
-    if (e.key === 'Enter') { const n = input.value.trim(); if (n) doMove(n); }
-    if (e.key === 'Escape') closeMovePopup();
-  };
-
   const onDoc = e => { if (!pop.contains(e.target) && e.target !== anchor) closeMovePopup(); };
   setTimeout(() => document.addEventListener('click', onDoc), 0);
   closeMovePopup = () => { document.removeEventListener('click', onDoc); pop.remove(); closeMovePopup = () => {}; };
