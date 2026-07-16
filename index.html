@@ -787,10 +787,19 @@ function pruneAcked() {
 }
 // One event per worker (newest first), like the per-tab queue — the global
 // stream is too noisy with every event. Keyless events stand on their own.
+// An event is "unread" if it sits above its tab's read marker (workers with no
+// tab belong to Home).
+function eventUnreadInTab(e) {
+  const k = keyOf(e.metadata);
+  return k ? e.id > getTabRead(getTabForWorker(k) || HOME) : false;
+}
+
 function streamDeduped() {
   const seen = new Set(), out = [];
   for (const e of [...allEvents].reverse()) {
-    if (e.id <= streamFloor) continue;  // only events that arrived since this page load
+    // Show events that arrived since page load, plus anything still unread in
+    // its tab — so pre-existing unread work surfaces even on a fresh load.
+    if (e.id <= streamFloor && !eventUnreadInTab(e)) continue;
     if (e.event_type === 'session_end') continue;  // worker is gone; not stream-worthy
     const k = keyOf(e.metadata) || 'id:' + e.id;
     if (seen.has(k)) continue;
