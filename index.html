@@ -738,13 +738,6 @@ function readBar() {
   return d;
 }
 
-function readBar() {
-  const d = document.createElement('div');
-  d.className = 'read-bar';
-  d.textContent = 'read below';
-  return d;
-}
-
 // renderList paints an event list into host under a read scope, inserting the
 // "read below" divider at the first read event.
 function renderList(host, events, scope) {
