@@ -72,6 +72,7 @@ go in that pane.
 | `DELETE /api/panes` | `{key}` — forget a pane entirely (including its tab assignment) |
 | `POST /api/panes/ack` | `{key, unread}` — set a pane's ack state; global everywhere it's shown |
 | `POST /api/panes/tab` | `{key, tab}` — assign a pane to a tab (`tab: ""` = Home) |
+| `POST /api/panes/unack-all` | mark every pane unread again (undo a batch of acks) |
 | `GET /api/stream` | SSE stream of new events (drives UI toasts/notifications) |
 | `POST /api/goto` | `{target: "slug-@N-%N"}` — runs `goto-pane-location target` |
 | `POST /api/pane/capture` | `{pane: "%N"}` — visible contents of the tmux pane (`capture-pane -p`) |

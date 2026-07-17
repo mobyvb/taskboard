@@ -35,6 +35,7 @@
   .tab-goto:hover, .tab-loc:hover { background: #3c424e; color: #fff; }
   .tab-goto { color: #8b95a5; }
   .tab-loc.set { color: #6fb3d1; }
+  .tab-loc.auto { color: #4a7d92; }
   .group { display: inline-flex; align-items: center; gap: 6px; }
   .group.active { background: #4a3a6b; border-color: #5a4a82; }
   details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
@@ -43,7 +44,7 @@
   pre { margin: 0; padding: 12px; border-top: 1px solid #2c313a; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; color: #b9c2cf; max-height: 50vh; overflow: auto; }
   .editor { width: 100%; min-height: 300px; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 10px; font: 12.5px/1.5 monospace; box-sizing: border-box; resize: vertical; }
   .event { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
-  .event .top { display: flex; gap: 8px; align-items: baseline; }
+  .event .top { display: flex; gap: 8px; align-items: center; }
   .event .type { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #2d4a6b; }
   .event .time { color: #717c8d; font-size: 12px; margin-left: auto; }
   .event .desc { color: #9aa4b4; margin: 4px 0; }
@@ -77,18 +78,42 @@
   .queue-head { display: flex; align-items: center; gap: 10px; flex: none; }
   .queue-head strong { font-size: 14px; }
   .queue-pos { flex: 1; font-size: 11px; color: #8b95a5; }
-  .queue-card-host { flex: 1; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
-  /* Transition only applies while .q-anim is present; toggled by JS around a
-     forced reflow so the same rule reliably re-triggers on every swap. */
-  .queue-card-host.q-anim { transition: opacity .16s ease, transform .16s ease; }
+  /* Cards are swapped by absolutely-positioning each one and sliding it in/out
+     of this frame (see .queue-slide) rather than resizing the frame itself —
+     a constant-size frame keeps the header and footer perfectly still while a
+     card swipes through it. */
+  .queue-card-host { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+  .queue-slide, .queue-empty { position: absolute; inset: 0; transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s ease; }
+  .queue-slide { display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+  .qs-enter-left { transform: translateX(-115%); opacity: 0; }
+  .qs-exit-right { transform: translateX(115%); opacity: 0; }
+  .qs-exit-up { transform: translateY(-115%); opacity: 0; }
+  .queue-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; }
+  .queue-empty .qe-check { width: 56px; height: 56px; border-radius: 50%; border: 2px solid #3f7a5c; color: #6fd39c; display: flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 4px; }
+  .queue-empty .qe-check-review { border-color: #33456b; color: #a9c4ef; }
+  .queue-empty h2 { margin: 0; font-size: 26px; font-weight: 600; color: #dde2e8; }
+  .queue-empty p { margin: 0; font-size: 13px; color: #8b95a5; max-width: 42ch; }
+  .queue-empty button { margin-top: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 9px; }
+  .queue-empty button.qa-next { background: #202b40; border-color: #33456b; color: #a9c4ef; }
+  .queue-empty button.qa-next:hover { background: #283656; }
   .queue-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; flex: 1; min-height: 0; }
   .queue-pane .pane-cap { flex: 1; max-height: none; }
+  /* The primary actions: large, high-contrast, and anchored at the bottom of
+     the dialog — right where the send-row input sits, since that's where the
+     user's attention already is when deciding "done" vs "next". */
+  .queue-actions { display: flex; gap: 10px; flex: none; }
+  .queue-actions button { flex: 1; padding: 14px 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; border-radius: 9px; }
+  .queue-actions button:disabled { opacity: .4; cursor: default; }
+  .queue-actions .qa-ack { background: #1f3d2c; border-color: #3f7a5c; color: #8fe3b3; }
+  .queue-actions .qa-ack:hover:not(:disabled) { background: #26492f; }
+  .queue-actions .qa-next { background: #202b40; border-color: #33456b; color: #a9c4ef; }
+  .queue-actions .qa-next:hover:not(:disabled) { background: #283656; }
   /* pane modal (own layer, above the columns and above the queue modal) */
   #pane-modal { position: fixed; inset: 0; z-index: 31; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #pane-modal[hidden] { display: none; }
   .pane-dialog { display: flex; flex-direction: column; gap: 10px; width: min(1000px, 95vw); max-height: 90vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
   .pane-dialog-head { display: flex; align-items: center; gap: 10px; }
-  .pane-dialog-head strong { font-size: 14px; }
+  .pane-dialog-head strong { font-size: 14px; display: inline-flex; align-items: center; gap: 7px; }
   .pane-dialog-head #pane-status { flex: 1; font-size: 11px; }
   .pane-cap { margin: 0; padding: 10px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
   .autorefresh { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b95a5; white-space: nowrap; }
@@ -100,6 +125,9 @@
   details.ack-fold { background: none; border: none; margin-top: 6px; }
   details.ack-fold > summary { padding: 6px 0; color: #8b95a5; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
   .worker { display: inline-flex; gap: 8px; align-items: center; background: #1c2b22; border: 1px solid #2f4a3a; border-radius: 6px; padding: 5px 10px; margin: 0 8px 8px 0; }
+  /* Deterministic pane glyph. Pixelated so the 5x5 grid stays crisp when scaled up. */
+  .identicon { width: 18px; height: 18px; border-radius: 4px; image-rendering: pixelated; flex: none; vertical-align: middle; }
+  .identicon.ic-lg { width: 26px; height: 26px; border-radius: 5px; }
   .move-pop { position: absolute; z-index: 20; max-width: 260px; background: #1c1f26; border: 1px solid #3c424e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
   .move-pop .move-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
   .move-pop .move-row { display: flex; gap: 6px; }
@@ -107,6 +135,18 @@
   #toasts { position: fixed; bottom: 16px; right: 16px; z-index: 10; }
   .toast { background: #2d4a6b; padding: 10px 14px; border-radius: 6px; margin-top: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
   .muted { color: #717c8d; }
+  kbd { display: inline-block; min-width: 1em; padding: 1px 6px; border-radius: 4px; border: 1px solid #4a5162; border-bottom-width: 2px; background: #0e1014; color: #cdd6e0; font: 600 11px/1.4 ui-monospace, monospace; text-align: center; }
+  .queue-actions kbd { margin: 0 3px; border-color: currentColor; background: rgba(0,0,0,.2); color: inherit; opacity: .85; }
+  /* shortcuts overlay (top layer, above every modal) */
+  #shortcuts-modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #shortcuts-modal[hidden] { display: none; }
+  .shortcuts-dialog { width: min(440px, 94vw); background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .shortcuts-dialog h2 { margin: 0 0 14px; font-size: 16px; }
+  .shortcuts-dialog dl { display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; margin: 0; align-items: center; }
+  .shortcuts-dialog dt { text-align: right; }
+  .shortcuts-dialog dd { margin: 0; color: #b7c0ce; font-size: 13px; }
+  .shortcuts-dialog .sc-section { grid-column: 1 / -1; margin-top: 6px; color: #717c8d; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+  .shortcuts-dialog .sc-hint { margin: 16px 0 0; color: #717c8d; font-size: 12px; text-align: center; }
 </style>
 </head>
 <body>
@@ -117,6 +157,7 @@
     <button id="stream-btn" onclick="toggleStream()">stream</button>
     <button id="queue-btn" onclick="openQueueModal()">queue</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
+    <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
   </header>
   <nav id="groupbar"></nav>
   <nav id="tabbar"></nav>
@@ -142,11 +183,15 @@
     <div class="queue-head">
       <strong>unread queue</strong>
       <span id="queue-pos" class="queue-pos"></span>
-      <button onclick="prevQueueCard()" title="previous (wraps around)">‹ prev</button>
-      <button onclick="nextQueueCard()" title="skip — leave unread, next (wraps around)">next ›</button>
+      <button onclick="unackAllPanes()" title="mark every pane unread again (undo a batch of acks)">unack all</button>
+      <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
       <button onclick="closeQueueModal()">close</button>
     </div>
     <div id="queue-card-host" class="queue-card-host"></div>
+    <div class="queue-actions">
+      <button id="queue-ack-btn" class="qa-ack" onclick="ackCurrentQueueCard()" title="acknowledge (a) — card slides off the top">✓ Ack <kbd>a</kbd></button>
+      <button id="queue-next-btn" class="qa-next" onclick="nextQueueCard()" title="skip (n) — leave unread, show the next one">Next <kbd>n</kbd> →</button>
+    </div>
   </div>
 </div>
 <div id="pane-modal" hidden onclick="if (event.target === this) closePaneModal()">
@@ -174,6 +219,25 @@
     </div>
   </div>
 </div>
+<div id="shortcuts-modal" hidden onclick="if (event.target === this) hideShortcuts()">
+  <div class="shortcuts-dialog">
+    <h2>Keyboard shortcuts</h2>
+    <dl>
+      <div class="sc-section">Global</div>
+      <dt><kbd>?</kbd></dt><dd>Show this help</dd>
+      <dt><kbd>q</kbd></dt><dd>Toggle unread queue</dd>
+      <dt><kbd>s</kbd></dt><dd>Toggle global stream</dd>
+      <dt><kbd>t</kbd></dt><dd>Focus next tab</dd>
+      <dt><kbd>g</kbd></dt><dd>Focus next tab group</dd>
+      <div class="sc-section">Queue</div>
+      <dt><kbd>a</kbd></dt><dd>Acknowledge current pane</dd>
+      <dt><kbd>n</kbd></dt><dd>Next (skip, leave unread)</dd>
+      <div class="sc-section">Anywhere</div>
+      <dt><kbd>Esc</kbd></dt><dd>Close the top overlay</dd>
+    </dl>
+    <p class="sc-hint">Shortcuts are ignored while typing in a text field.</p>
+  </div>
+</div>
 <div id="toasts"></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -188,6 +252,41 @@ function elapsed(date) {
   return Math.floor(h / 24) + 'd';
 }
 function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+
+// ---- identicon ----
+// A deterministic 5x5 mirrored-grid identicon (GitHub-style) rendered inline as
+// an SVG data URI, so the same pane always gets the same little glyph and colour
+// — a fast visual anchor when scanning a list of otherwise similar panes.
+const identiconCache = new Map();
+function hashStr(s) {  // FNV-1a; stable across sessions, no crypto needed
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+function identiconDataURI(key) {
+  if (identiconCache.has(key)) return identiconCache.get(key);
+  const h = hashStr(key || '?');
+  const hue = h % 360, fg = `hsl(${hue} 58% 62%)`, bg = `hsl(${hue} 22% 20%)`;
+  // 5 columns, but mirror the outer two onto each other → 15 cells drive 25.
+  let rects = '';
+  for (let col = 0; col < 3; col++) {
+    for (let row = 0; row < 5; row++) {
+      if ((h >> (col * 5 + row)) & 1) {
+        for (const c of col === 2 ? [2] : [col, 4 - col])
+          rects += `<rect x="${c}" y="${row}" width="1" height="1"/>`;
+      }
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5 5" shape-rendering="crispEdges">`
+    + `<rect width="5" height="5" fill="${bg}"/><g fill="${fg}">${rects}</g></svg>`;
+  const uri = 'data:image/svg+xml,' + encodeURIComponent(svg);
+  identiconCache.set(key, uri);
+  return uri;
+}
+// An <img> identicon element for a pane key, sized via the .identicon class.
+function identiconImg(key, cls = 'identicon') {
+  return `<img class="${cls}" alt="" src="${identiconDataURI(key)}">`;
+}
 
 // ---- tab state ----
 // Tabs hold files client-side (taskboard_tabs, localStorage); which tab a
@@ -238,6 +337,20 @@ function loadLocs() { try { return JSON.parse(localStorage.getItem(LOCS_KEY)) ||
 function saveLocs(l) { localStorage.setItem(LOCS_KEY, JSON.stringify(l)); }
 function getTabLoc(name) { return loadLocs()[name] || ''; }
 function setTabLoc(name, loc) { const l = loadLocs(); if (loc) l[name] = loc; else delete l[name]; saveLocs(l); }
+// inferTabLoc picks a default goto target for a tab from its assigned panes
+// (most-relevant first) when the user hasn't pinned one explicitly — so a tab
+// full of workers is one click from its tmux window without any manual setup.
+function inferTabLoc(name) {
+  const p = orderPanes(panesForTab(name)).find(p => p.pane_loc && gotoTargetRe.test(p.pane_loc));
+  return p ? p.pane_loc : '';
+}
+// resolveTabLoc is the effective goto target: the pinned one if set, else an
+// inferred one. Returns { loc, inferred }.
+function resolveTabLoc(name) {
+  const explicit = getTabLoc(name);
+  if (explicit) return { loc: explicit, inferred: false };
+  return { loc: inferTabLoc(name), inferred: true };
+}
 // Drop locations for tabs that no longer exist.
 function pruneLocs() {
   const names = new Set(allTabNames()), l = loadLocs();
@@ -407,21 +520,24 @@ function renderTabs() {
       + (last ? `<span class="tab-elapsed">${elapsed(last)}</span>` : '');
     btn.onclick = () => switchTab(name);
     if (name !== HOME) {
-      // One-click tmux goto, shown only when the tab has a saved location.
-      const loc = getTabLoc(name);
+      // One-click tmux goto: uses the pinned location, or one inferred from
+      // the tab's assigned panes when none is pinned.
+      const { loc, inferred } = resolveTabLoc(name);
       if (loc) {
         const go = document.createElement('span');
         go.className = 'tab-goto';
         go.textContent = '⇥';
-        go.title = 'go to ' + loc;
+        go.title = (inferred ? 'go to ' + loc + ' (auto, from a pane in this tab)' : 'go to ' + loc);
         go.onclick = e => { e.stopPropagation(); gotoPane(loc); };
         btn.appendChild(go);
       }
-      // Set/edit/clear the tab's tmux location.
+      // Set/edit/clear the tab's tmux location. Solid when pinned; a fainter
+      // state when only an inferred default is in play.
       const pin = document.createElement('span');
-      pin.className = 'tab-loc' + (loc ? ' set' : '');
+      pin.className = 'tab-loc' + (getTabLoc(name) ? ' set' : (loc ? ' auto' : ''));
       pin.textContent = '⌖';
-      pin.title = loc ? 'edit tmux location' : 'set a tmux location for quick goto';
+      pin.title = getTabLoc(name) ? 'edit tmux location'
+        : (loc ? 'using an auto-picked location — click to pin one' : 'set a tmux location for quick goto');
       pin.onclick = e => { e.stopPropagation(); promptLoc(name, pin); };
       btn.appendChild(pin);
       // Assign this tab to a group; the icon fills in when it belongs to one.
@@ -606,7 +722,7 @@ function renderWorkers() {
     const k = paneKey(p);
     const d = document.createElement('span');
     d.className = 'worker';
-    d.innerHTML = `<strong>${esc(p.title || k)}</strong>
+    d.innerHTML = `${identiconImg(k)}<strong>${esc(p.title || k)}</strong>
       <span class="muted">${esc(p.last_event_type)}</span>
       ${p.pane_loc ? `<button onclick="gotoPane('${esc(p.pane_loc)}')">goto</button>` : ''}`;
     const mv = document.createElement('button');
@@ -688,7 +804,7 @@ function renderCard(pane, e, scope, opts = {}) {
   // only add value in the stream. Full metadata stays behind "raw".
   const chips = paneChips(pane, scope === STREAM);
 
-  div.innerHTML = `<div class="top"><span class="type">${esc(e.event_type)}</span>
+  div.innerHTML = `<div class="top">${k ? identiconImg(k, 'identicon ic-lg') : ''}<span class="type">${esc(e.event_type)}</span>
       <strong>${esc(e.title)}</strong>
       <span class="time">${new Date(e.time).toLocaleTimeString()}</span></div>
     ${e.description ? `<div class="desc">${esc(e.description)}</div>` : ''}
@@ -709,12 +825,14 @@ function renderCard(pane, e, scope, opts = {}) {
   // so it skips this button rather than opening a redundant second dialog.
   if (paneId && !opts.skipPaneButton) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, pane));
   // Ack state is global for the pane — acking here also clears it in the
-  // queue, global stream, and its tab's stream. The queue overlay passes its
-  // own onAck (see renderQueueModal) so acking there advances to the next
-  // card instead of just disappearing.
-  add(isRead ? 'un-ack' : 'ack',
-      isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
-      () => (opts.onAck ? opts.onAck(k, isRead) : setPaneUnread(k, isRead)));
+  // queue, global stream, and its tab's stream. The queue overlay renders its
+  // own prominent Ack button in the dialog footer instead (see
+  // buildQueueCard), so it skips this smaller one to avoid a duplicate.
+  if (!opts.skipAckButton) {
+    add(isRead ? 'un-ack' : 'ack',
+        isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
+        () => (opts.onAck ? opts.onAck(k, isRead) : setPaneUnread(k, isRead)));
+  }
   if (k) {
     // From the stream, jump to the pane's tab (its per-tab queue lives there).
     if (scope === STREAM) {
@@ -746,7 +864,8 @@ let paneModal = { id: null, timer: null, lastText: null };
 function openPaneModal(paneId, pane) {
   paneModal.id = paneId;
   paneModal.lastText = null;
-  $('pane-title').textContent = 'pane ' + paneId;
+  const k = paneKey(pane);
+  $('pane-title').innerHTML = (k ? identiconImg(k, 'identicon ic-lg') : '') + 'pane ' + esc(paneId);
   $('pane-status').textContent = '';
   $('pane-info').innerHTML = paneChips(pane, true).join('');  // context hidden behind the modal
   $('pane-input').value = '';
@@ -844,8 +963,7 @@ async function setPaneUnread(key, unread) {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key, unread }),
     });
   } catch { toast('ack failed'); return; }
-  await loadPanes();
-  if (queueOpen) renderQueueModal('ack');
+  await loadPanes();  // loadPanes itself does a quiet (non-animated) queue refresh
 }
 
 // setPaneTab persists a pane's tab assignment to the server. tab === HOME (or
@@ -905,6 +1023,14 @@ function toggleStream() {
 // from the unread set some other way (e.g. acked from the tab view), it's
 // fine to fall forward to whatever is now first.
 let queueOpen = false, queueCurrentKey = null, queueRenderedKey = null;
+// Panes viewed since the queue opened (or since "start over"). "Next" walks
+// through the unseen ones; once they're all seen it stops at an end-of-deck
+// page rather than silently looping, so you can tell you've been through
+// everything. Acking is separate — it removes the pane outright.
+let queueSeen = new Set(), queueDeckDone = false;
+// Sentinels for queueRenderedKey so the empty / end-of-deck pages aren't
+// needlessly rebuilt on every quiet background refresh.
+const Q_EMPTY = ' empty', Q_DONE = ' done';
 
 function queueCandidates() { return orderPanes(allPanes.filter(p => p.unread)); }
 
@@ -912,108 +1038,178 @@ function openQueueModal() {
   queueOpen = true;
   queueCurrentKey = null;
   queueRenderedKey = null;
+  queueSeen = new Set();
+  queueDeckDone = false;
+  queueAnimGen++;  // invalidate any pending swap timeout from a previous session
+  queueSwapPending = false;
   $('queue-modal').hidden = false;
   renderQueueModal();
 }
 function closeQueueModal() {
   queueOpen = false;
   queueRenderedKey = null;
+  queueAnimGen++;
+  queueSwapPending = false;
   stopQueuePaneCapture();
   stopQueueNeighborPrefetch();
   $('queue-modal').hidden = true;
 }
 
-// ackQueueCard acks the currently-displayed card and picks what should show
-// next — computed from the list as it exists right now, before the mutation
-// — preserving the "circuit" feel (the next candidate in line, wrapping to
-// the front) instead of falling back to whatever the freshly re-sorted list
-// puts first.
+// startOverQueue clears the "seen" set so Next walks the full deck again.
+function startOverQueue() {
+  const panes = queueCandidates();
+  if (!panes.length) return;
+  queueSeen = new Set();
+  queueDeckDone = false;
+  queueCurrentKey = paneKey(panes[0]);
+  animateQueueSwap('next');
+}
+
+// ackCurrentQueueCard/ackQueueCard ack the currently-displayed card and pick
+// what should show next — computed from the list as it exists right now,
+// before the mutation — preserving the "circuit" feel (the next candidate in
+// line, wrapping to the front) instead of falling back to whatever the
+// freshly re-sorted list puts first.
+function ackCurrentQueueCard() {
+  if (queueCurrentKey && !queueDeckDone) ackQueueCard(queueCurrentKey, false);
+}
 async function ackQueueCard(key, isRead) {
   const panes = queueCandidates();
   const idx = panes.findIndex(p => paneKey(p) === key);
   const rest = panes.filter(p => paneKey(p) !== key);
   queueCurrentKey = rest.length ? paneKey(rest[idx % rest.length]) : null;
+  animateQueueSwap('ack');
   await setPaneUnread(key, isRead);
 }
 
-// renderQueueModal rebuilds the current card. Pass 'next'/'prev'/'ack' to
-// play a small directional/fade transition around the swap; omit it (initial
-// open, background SSE refresh) to update instantly — and, if the pinned
-// pane hasn't changed, to skip touching the DOM at all (no dir, same key),
-// so a background refresh never resets pane-capture scroll/selection.
-let queueAnimGen = 0;
+// renderQueueModal rebuilds the current card. Pass 'next' or 'ack' to swipe
+// the outgoing card off screen (right for next, up for ack) and slide the new
+// one in from the left; omit it (initial open, background SSE refresh) to
+// update instantly — and, if the pinned pane hasn't changed, to skip touching
+// the DOM at all (no dir, same key), so a background refresh never resets
+// pane-capture scroll/selection.
 function renderQueueModal(dir = null) {
-  const build = () => {
-    const panes = queueCandidates();
-    const host = $('queue-card-host');
-    if (!panes.length) {
-      queueCurrentKey = null;
-      if (queueRenderedKey !== null) { stopQueuePaneCapture(); stopQueueNeighborPrefetch(); }
-      queueRenderedKey = null;
-      $('queue-pos').textContent = 'all caught up';
-      host.innerHTML = '<span class="muted">nothing unacknowledged</span>';
-      return;
-    }
-    let idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
-    if (idx < 0) { idx = 0; queueCurrentKey = paneKey(panes[0]); }
-    $('queue-pos').textContent = `${idx + 1} of ${panes.length}`;
-    const p = panes[idx];
-    if (dir || paneKey(p) !== queueRenderedKey) {
-      stopQueuePaneCapture();
-      host.innerHTML = '';
-      host.appendChild(renderCard(p, eventForPane(p, latestEventByKey()), STREAM, { skipPaneButton: true, onAck: ackQueueCard }));
-      const paneId = (p.pane_loc || '').match(/%\d+/);
-      if (paneId) host.appendChild(buildInlinePane(paneId[0]));
-      queueRenderedKey = paneKey(p);
-    }
-    startQueueNeighborPrefetch(neighborPaneIds(panes, idx));
-  };
-  if (!dir) { build(); return; }
-  animateQueueSwap(build, dir);
+  if (dir) { animateQueueSwap(dir); return; }
+  // A quiet background refresh (SSE, the poll, or the ack request settling)
+  // must never cut an in-flight swipe short — let its own timeout below paint
+  // the settled state once the animation finishes instead.
+  if (queueSwapPending) return;
+  buildQueueCard();
 }
 
-// Slide the outgoing card away (direction-aware for next/prev, a plain
-// scale-fade for ack) then swap content and ease the new card back in.
-// Toggling the .q-anim class (rather than setting inline transition strings)
-// plus a forced reflow between "jump to start state" and "animate to end
-// state" is what makes the same transition reliably re-fire on every swap —
-// relying on requestAnimationFrame timing there was the source of the
-// jumpiness. A generation counter drops stale timeouts if the user pages
-// through faster than the animation.
-function animateQueueSwap(build, dir) {
+// buildQueueCard paints the current queue state into the host, replacing its
+// previous contents. Three states: all-caught-up (nothing unread), end-of-deck
+// (unread remain but all have been seen this cycle), or a pane card.
+function buildQueueCard() {
+  const panes = queueCandidates();
+  const host = $('queue-card-host');
+  const setControls = (on) => { $('queue-ack-btn').disabled = !on; $('queue-next-btn').disabled = !on; };
+
+  if (!panes.length) {
+    queueCurrentKey = null;
+    queueDeckDone = false;
+    setControls(false);
+    $('queue-pos').textContent = 'all caught up';
+    if (queueRenderedKey !== Q_EMPTY) {
+      stopQueuePaneCapture(); stopQueueNeighborPrefetch();
+      host.innerHTML = `<div class="queue-empty">
+        <div class="qe-check">✓</div>
+        <h2>All caught up</h2>
+        <p>No unacknowledged panes right now.</p>
+        <button onclick="unackAllPanes()">Unacknowledge all</button>
+      </div>`;
+      queueRenderedKey = Q_EMPTY;
+    }
+    return;
+  }
+
+  if (queueDeckDone) {
+    setControls(false);
+    $('queue-pos').textContent = `${panes.length} still unread`;
+    if (queueRenderedKey !== Q_DONE) {
+      stopQueuePaneCapture(); stopQueueNeighborPrefetch();
+      host.innerHTML = `<div class="queue-empty">
+        <div class="qe-check qe-check-review">↻</div>
+        <h2>Reviewed them all</h2>
+        <p>${panes.length} pane${panes.length === 1 ? '' : 's'} still unacknowledged. Start over to go through them again.</p>
+        <button class="qa-next" onclick="startOverQueue()">Start over</button>
+      </div>`;
+      queueRenderedKey = Q_DONE;
+    }
+    return;
+  }
+
+  let idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
+  if (idx < 0) { idx = 0; queueCurrentKey = paneKey(panes[0]); }
+  queueSeen.add(paneKey(panes[idx]));
+  setControls(true);
+  $('queue-pos').textContent = `${idx + 1} of ${panes.length}`;
+  const p = panes[idx];
+  if (paneKey(p) !== queueRenderedKey) {
+    stopQueuePaneCapture();
+    const slide = document.createElement('div');
+    slide.className = 'queue-slide';
+    slide.appendChild(renderCard(p, eventForPane(p, latestEventByKey()), STREAM, { skipPaneButton: true, skipAckButton: true, onAck: ackQueueCard }));
+    const paneId = (p.pane_loc || '').match(/%\d+/);
+    host.innerHTML = '';
+    host.appendChild(slide);
+    // Start the capture only after the slide is in the document — otherwise the
+    // first forced refresh can't find #queue-pane-cap (it's still detached) and
+    // the initial card would sit blank until the next poll tick.
+    if (paneId) { slide.appendChild(buildInlinePane(paneId[0])); startQueuePaneCapture(paneId[0]); }
+    queueRenderedKey = paneKey(p);
+  }
+  startQueueNeighborPrefetch(neighborPaneIds(panes, idx));
+}
+
+// animateQueueSwap swipes the current slide out (direction depends on dir),
+// then builds the new card and swipes it in from the left. A generation
+// counter drops a stale swap's completion if the user pages through faster
+// than the animation — e.g. mashing "next" repeatedly.
+let queueAnimGen = 0, queueSwapPending = false;
+function animateQueueSwap(dir) {
   const host = $('queue-card-host');
   const gen = ++queueAnimGen;
-  const out = dir === 'prev' ? 'translateX(14px)' : dir === 'next' ? 'translateX(-14px)' : 'scale(.97)';
-  const into = dir === 'prev' ? 'translateX(-14px)' : dir === 'next' ? 'translateX(14px)' : 'scale(.97)';
-  host.classList.add('q-anim');
-  host.style.opacity = '0';
-  host.style.transform = out;
+  queueSwapPending = true;
+  const outgoing = host.querySelector('.queue-slide, .queue-empty');
+  if (outgoing) outgoing.classList.add(dir === 'ack' ? 'qs-exit-up' : 'qs-exit-right');
   setTimeout(() => {
     if (gen !== queueAnimGen) return;  // superseded by a newer swap
-    build();
-    host.classList.remove('q-anim');  // jump to the entry pose with no transition...
-    host.style.opacity = '0';
-    host.style.transform = into;
-    host.offsetHeight;  // ...force a reflow so the browser commits that pose...
-    host.classList.add('q-anim');     // ...before re-enabling the transition and animating in
-    host.style.opacity = '1';
-    host.style.transform = 'translateX(0)';
-  }, 130);
+    queueSwapPending = false;
+    if (outgoing) outgoing.remove();
+    buildQueueCard();
+    const incoming = host.querySelector('.queue-slide, .queue-empty');
+    if (!incoming) return;
+    incoming.classList.add('qs-enter-left');
+    incoming.offsetHeight;  // force a reflow so removing the class next actually transitions
+    incoming.classList.remove('qs-enter-left');
+  }, 280);
 }
 
+// Skips the current card without acking it — it stays unread. Walks to the
+// next pane not yet seen this cycle; when there are none left, lands on the
+// end-of-deck page instead of looping straight back to the top.
 function nextQueueCard() {
   const panes = queueCandidates();
-  if (!panes.length) return;
-  const idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
-  queueCurrentKey = paneKey(panes[(Math.max(idx, 0) + 1) % panes.length]);
-  renderQueueModal('next');
+  if (!panes.length || queueDeckDone) return;
+  const idx = Math.max(0, panes.findIndex(p => paneKey(p) === queueCurrentKey));
+  for (let i = 1; i <= panes.length; i++) {
+    const cand = panes[(idx + i) % panes.length];
+    if (!queueSeen.has(paneKey(cand))) { queueCurrentKey = paneKey(cand); animateQueueSwap('next'); return; }
+  }
+  queueDeckDone = true;
+  animateQueueSwap('next');
 }
-function prevQueueCard() {
-  const panes = queueCandidates();
-  if (!panes.length) return;
-  const idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
-  queueCurrentKey = paneKey(panes[(Math.max(idx, 0) - 1 + panes.length) % panes.length]);
-  renderQueueModal('prev');
+
+// unackAllPanes resets every pane to unread (server-side, shared everywhere),
+// for double-checking a batch of acks. Refills the queue from the top.
+async function unackAllPanes() {
+  try { await fetch('/api/panes/unack-all', { method: 'POST' }); }
+  catch { toast('reset failed'); return; }
+  queueSeen = new Set();
+  queueDeckDone = false;
+  queueCurrentKey = null;
+  await loadPanes();
 }
 
 // ---- queue overlay's inline pane (view + send keys, no second dialog) ----
@@ -1044,7 +1240,8 @@ function buildInlinePane(paneId) {
     </div>`;
   div.querySelector('#queue-autorefresh').checked = isAutoRefresh();
   div.querySelector('#queue-pane-cap').textContent = paneCache.get(paneId) ?? '…';
-  startQueuePaneCapture(paneId);
+  // Caller starts the capture loop after appending this to the document (see
+  // buildQueueCard) so the first refresh can find #queue-pane-cap.
   return div;
 }
 
@@ -1242,20 +1439,28 @@ function promptGroup(tabName, anchor) {
 function promptLoc(tabName, anchor) {
   closeMovePopup();
   const cur = getTabLoc(tabName);
+  const inferred = cur ? '' : inferTabLoc(tabName);
 
   const pop = document.createElement('div');
   pop.className = 'move-pop';
 
-  if (cur) {
+  const effective = cur || inferred;
+  if (effective) {
     const go = document.createElement('button');
-    go.textContent = 'goto ' + cur;
-    go.onclick = () => { gotoPane(cur); closeMovePopup(); };
+    go.textContent = 'goto ' + effective + (inferred ? ' (auto)' : '');
+    go.onclick = () => { gotoPane(effective); closeMovePopup(); };
     pop.appendChild(go);
+  }
+  if (inferred) {
+    const pinBtn = document.createElement('button');
+    pinBtn.textContent = 'pin auto (' + inferred + ')';
+    pinBtn.onclick = () => { setTabLoc(tabName, inferred); closeMovePopup(); renderTabs(); };
+    pop.appendChild(pinBtn);
   }
 
   const row = document.createElement('div'); row.className = 'move-row';
   const input = document.createElement('input');
-  input.placeholder = 'name-@N-%N'; input.value = cur;
+  input.placeholder = inferred || 'name-@N-%N'; input.value = cur;
   const save = document.createElement('button'); save.textContent = 'save';
   const doSave = () => {
     const v = input.value.trim();
@@ -1381,12 +1586,47 @@ loadPanes();
 // made from another browser/tab, which aren't pushed over SSE) and re-tick
 // tab indicators (unread counts + elapsed-time labels).
 setInterval(() => { renderTabs(); loadFiles(); loadPanes(); }, 15000);
-// Escape closes whichever modal is on top (pane modal can open from within
-// the queue overlay, so it takes priority).
+// ---- keyboard shortcuts ----
+function showShortcuts() { $('shortcuts-modal').hidden = false; }
+function hideShortcuts() { $('shortcuts-modal').hidden = true; }
+function isQueueOpen() { return !$('queue-modal').hidden; }
+function isTypingTarget(el) {
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+}
+// Cycle focus through the tabs visible in the current group (Home first).
+function focusNextTab() {
+  const tabs = [HOME, ...tabsInCurrentGroup()];
+  const i = tabs.indexOf(currentTab);
+  switchTab(tabs[(Math.max(i, 0) + 1) % tabs.length]);
+}
+// Cycle the group filter (ALL first).
+function focusNextGroup() {
+  const groups = [ALL, ...orderedGroupNames()];
+  const i = groups.indexOf(currentGroup);
+  switchGroup(groups[(Math.max(i, 0) + 1) % groups.length]);
+}
+
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (!$('pane-modal').hidden) closePaneModal();
-  else if (!$('queue-modal').hidden) closeQueueModal();
+  // Esc always works — even from a text field — to back out of the top overlay.
+  if (e.key === 'Escape') {
+    if (!$('shortcuts-modal').hidden) hideShortcuts();
+    else if (!$('pane-modal').hidden) closePaneModal();
+    else if (!$('queue-modal').hidden) closeQueueModal();
+    return;
+  }
+  // Leave modified keys and text entry alone so shortcuts never eat real input.
+  if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
+  // While the help is up, only Esc (handled above) does anything.
+  if (!$('shortcuts-modal').hidden) return;
+  switch (e.key) {
+    case '?': showShortcuts(); break;
+    case 'q': isQueueOpen() ? closeQueueModal() : openQueueModal(); break;
+    case 's': toggleStream(); break;
+    case 't': focusNextTab(); break;
+    case 'g': focusNextGroup(); break;
+    case 'a': if (isQueueOpen()) { e.preventDefault(); ackCurrentQueueCard(); } break;
+    case 'n': if (isQueueOpen()) { e.preventDefault(); nextQueueCard(); } break;
+  }
 });
 </script>
 </body>

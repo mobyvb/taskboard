@@ -312,6 +312,19 @@ func (s *Store) SetPaneTab(key, tab string) bool {
 	return true
 }
 
+// SetAllUnread marks every pane unread (true) or read (false) at once — used
+// by the "unacknowledge all" reset, so a batch of acks made in error can be
+// undone in one action. Returns the number of panes affected.
+func (s *Store) SetAllUnread(unread bool) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.panes {
+		p.Unread = unread
+	}
+	s.rewritePanes()
+	return len(s.panes)
+}
+
 func (s *Store) Subscribe() chan []byte {
 	ch := make(chan []byte, 16)
 	s.mu.Lock()
@@ -524,6 +537,11 @@ func main() {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	mux.HandleFunc("POST /api/panes/unack-all", func(w http.ResponseWriter, r *http.Request) {
+		n := store.SetAllUnread(true)
+		writeJSON(w, map[string]any{"ok": true, "count": n})
 	})
 
 	mux.HandleFunc("GET /api/stream", func(w http.ResponseWriter, r *http.Request) {
