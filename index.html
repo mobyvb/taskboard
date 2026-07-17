@@ -185,6 +185,7 @@
     <div class="queue-head">
       <strong>unread queue</strong>
       <span id="queue-pos" class="queue-pos"></span>
+      <button id="queue-undo-btn" onclick="undoQueueAction()" title="undo the last queue action (ack or next) (z) — up to 5 back" disabled>↩ undo</button>
       <button onclick="unackAllPanes()" title="mark every pane unread again (undo a batch of acks)">unack all</button>
       <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
       <button onclick="closeQueueModal()">close</button>
@@ -234,6 +235,7 @@
       <div class="sc-section">Queue</div>
       <dt><kbd>a</kbd></dt><dd>Acknowledge current pane</dd>
       <dt><kbd>n</kbd></dt><dd>Next (skip, leave unread)</dd>
+      <dt><kbd>z</kbd></dt><dd>Undo last action, ack or next (up to 5 back)</dd>
       <div class="sc-section">Anywhere</div>
       <dt><kbd>Esc</kbd></dt><dd>Close the top overlay</dd>
     </dl>
@@ -1053,12 +1055,50 @@ function queueIsSeen(p) {
   return seenAt !== undefined && new Date(p.last_seen || 0) <= seenAt;
 }
 
+// Undo stack for the queue: each entry is a full snapshot of queue-walk
+// state taken right before one user-initiated Ack or Next/skip, so undo
+// reverses whichever action was actually taken, in the exact order taken --
+// not just acks. Capped at QUEUE_UNDO_CAP, oldest dropped once full.
+const QUEUE_UNDO_CAP = 5;
+let queueActionHistory = [];
+function updateUndoButton() { $('queue-undo-btn').disabled = !queueActionHistory.length; }
+// Call with the pane's key right before an ack mutates state (so undo knows
+// to un-ack it server-side), or with null before a Next/skip (pure
+// navigation, nothing to undo server-side).
+function queuePushAction(ackedKey) {
+  queueActionHistory.push({
+    prevCurrentKey: queueCurrentKey,
+    prevDeckDone: queueDeckDone,
+    prevSeen: new Map(queueSeen),
+    ackedKey,
+  });
+  if (queueActionHistory.length > QUEUE_UNDO_CAP) queueActionHistory.shift();
+  updateUndoButton();
+}
+async function undoQueueAction() {
+  const entry = queueActionHistory.pop();
+  updateUndoButton();
+  if (!entry) return;
+  queueSeen = entry.prevSeen;
+  queueDeckDone = entry.prevDeckDone;
+  queueCurrentKey = entry.prevCurrentKey;
+  // Force a repaint even if the state we're restoring to looks unchanged
+  // from buildQueueCard's point of view (e.g. undoing back onto the
+  // "reviewed them all" page) -- otherwise the card animateQueueSwap just
+  // swiped away wouldn't be replaced, leaving the slot blank.
+  queueRenderedKey = null;
+  animateQueueSwap('next');
+  if (entry.ackedKey) await setPaneUnread(entry.ackedKey, true);
+}
+
 function openQueueModal() {
   queueOpen = true;
   queueCurrentKey = null;
   queueRenderedKey = null;
   queueSeen = new Map();
   queueDeckDone = false;
+  queueActionHistory = [];
+  updateUndoButton();
   queueAnimGen++;  // invalidate any pending swap timeout from a previous session
   queueSwapPending = false;
   $('queue-modal').hidden = false;
@@ -1101,6 +1141,7 @@ async function ackQueueCard(key, isRead) {
   const idx = panes.findIndex(p => paneKey(p) === key);
   const rest = panes.filter(p => paneKey(p) !== key);
   const fresh = rest.find(p => !queueIsSeen(p));
+  if (!isRead) queuePushAction(key);  // an actual ack (not an un-ack) -- record it for undo
   queueCurrentKey = fresh ? paneKey(fresh) : (rest.length ? paneKey(rest[idx % rest.length]) : null);
   animateQueueSwap('ack');
   await setPaneUnread(key, isRead);
@@ -1228,6 +1269,7 @@ function animateQueueSwap(dir) {
 function nextQueueCard() {
   const panes = queueCandidates();
   if (!panes.length || queueDeckDone) return;
+  queuePushAction(null);  // pure navigation -- nothing to undo server-side
   const cand = panes.find(p => !queueIsSeen(p));
   if (cand) { queueCurrentKey = paneKey(cand); animateQueueSwap('next'); return; }
   queueDeckDone = true;
@@ -1242,6 +1284,8 @@ async function unackAllPanes() {
   queueSeen = new Map();
   queueDeckDone = false;
   queueCurrentKey = null;
+  queueActionHistory = [];
+  updateUndoButton();
   await loadPanes();
 }
 
@@ -1677,6 +1721,7 @@ document.addEventListener('keydown', e => {
     case 'g': focusNextGroup(); break;
     case 'a': if (isQueueOpen()) { e.preventDefault(); ackCurrentQueueCard(); } break;
     case 'n': if (isQueueOpen()) { e.preventDefault(); nextQueueCard(); } break;
+    case 'z': if (isQueueOpen()) { e.preventDefault(); undoQueueAction(); } break;
   }
 });
 </script>
