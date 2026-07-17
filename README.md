@@ -51,19 +51,27 @@ TASK_QUEUE_PATH=/path/to/tasks TASKBOARD_SCRIPTS_PATH=/path/to/taskboard/scripts
 Flags: `-port 8723`, `-allow context.txt` (repeatable filename whitelist),
 `-scripts /path/to/taskboard/scripts` (directory containing helper scripts; overridden by `TASKBOARD_SCRIPTS_PATH` env var),
 `-goto-script PATH` (explicit path to `goto-pane-location`; overrides `-scripts`),
-`-data ~/.taskboard` (persistence dir: `events.jsonl` + `read.txt`; events and the
-read marker survive restarts, workers are rebuilt by replaying events).
+`-data ~/.taskboard` (persistence dir: `events.jsonl` + `panes.json`; events are
+replayed on restart, pane state — ack/tab/etc. — is snapshotted separately).
 
 ## API
+
+A pane is identified by `pane_loc` (falling back to `session_id` only for
+events that somehow lack it) and is the persistent record for a tmux pane's
+lifecycle: it tracks ack/unread state, tab assignment, and the most recent
+session/notification, surviving across however many claude sessions come and
+go in that pane.
 
 | Endpoint | Description |
 |---|---|
 | `GET /api/files` | whitelisted files under `$TASK_QUEUE_PATH` (recursive) |
 | `GET /api/file?path=REL` | file contents |
 | `POST /api/events` | `{event_type, title, description, metadata}` — metadata is arbitrary JSON |
-| `GET /api/events` | `{events, last_read}` — events with id ≤ `last_read` are read |
-| `POST /api/read` | `{id}` — mark events up to and including `id` as read |
-| `GET /api/workers` | active workers (keyed by `metadata.session_id`/`pane_loc`; removed on `session_end`) |
+| `GET /api/events` | raw event log (retained events, newest last) |
+| `GET /api/panes` | all panes (ack/tab/session state; not removed on `session_end`) |
+| `DELETE /api/panes` | `{key}` — forget a pane entirely (including its tab assignment) |
+| `POST /api/panes/ack` | `{key, unread}` — set a pane's ack state; global everywhere it's shown |
+| `POST /api/panes/tab` | `{key, tab}` — assign a pane to a tab (`tab: ""` = Home) |
 | `GET /api/stream` | SSE stream of new events (drives UI toasts/notifications) |
 | `POST /api/goto` | `{target: "slug-@N-%N"}` — runs `goto-pane-location target` |
 | `POST /api/pane/capture` | `{pane: "%N"}` — visible contents of the tmux pane (`capture-pane -p`) |
