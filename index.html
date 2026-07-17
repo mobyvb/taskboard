@@ -84,7 +84,9 @@
      card swipes through it. */
   .queue-card-host { flex: 1; min-height: 0; position: relative; overflow: hidden; }
   .queue-slide, .queue-empty { position: absolute; inset: 0; transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s ease; }
-  .queue-slide { display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+  /* Small inset so card content (esp. the send-row input) isn't clipped flush
+     against the frame's edges or crowded by the footer just below. */
+  .queue-slide { display: flex; flex-direction: column; gap: 10px; overflow: auto; padding: 2px 3px 5px; }
   .qs-enter-left { transform: translateX(-115%); opacity: 0; }
   .qs-exit-right { transform: translateX(115%); opacity: 0; }
   .qs-exit-up { transform: translateY(-115%); opacity: 0; }
@@ -307,6 +309,10 @@ const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
 const AUTOREFRESH_KEY = 'taskboard_pane_autorefresh';
 function isAutoRefresh() { return localStorage.getItem(AUTOREFRESH_KEY) === '1'; }
 function setAutoRefresh(on) { localStorage.setItem(AUTOREFRESH_KEY, on ? '1' : '0'); }
+// How many lines of scrollback to pull with each pane capture (bounded server
+// side, and ultimately by tmux's history-limit). The captured block scrolls
+// within the .pane-cap <pre>; see applyPaneText for scroll preservation.
+const PANE_SCROLLBACK = 500;
 
 function loadTabState() { try { return JSON.parse(localStorage.getItem(TABS_KEY)) || {}; } catch { return {}; } }
 function saveTabState(s) { localStorage.setItem(TABS_KEY, JSON.stringify(s)); }
@@ -896,12 +902,13 @@ function closePaneModal() {
 async function refreshPaneModal(force = false) {
   if (!paneModal.id) return;
   try {
-    const text = (await capturePane(paneModal.id)) || '(empty)';
+    const text = (await capturePane(paneModal.id, PANE_SCROLLBACK)) || '(empty)';
     $('pane-status').textContent = '';
     if (text === paneModal.lastText) { $('pane-refresh-dot').hidden = true; return; }
     if (force || isAutoRefresh()) {
+      const first = paneModal.lastText === null;  // first paint: jump to latest output
       paneModal.lastText = text;
-      $('pane-cap').textContent = text;
+      applyPaneText($('pane-cap'), text, first);
       $('pane-refresh-dot').hidden = true;
     } else {
       $('pane-refresh-dot').hidden = false;
@@ -1266,13 +1273,13 @@ function startQueueNeighborPrefetch(paneIds) {
 }
 function stopQueueNeighborPrefetch() { clearInterval(queueNeighborTimer); queueNeighborTimer = null; }
 async function prefetchPane(paneId) {
-  try { paneCache.set(paneId, (await capturePane(paneId)) || '(empty)'); } catch { /* keep last-known content */ }
+  try { paneCache.set(paneId, (await capturePane(paneId, PANE_SCROLLBACK)) || '(empty)'); } catch { /* keep last-known content */ }
 }
 
 function startQueuePaneCapture(paneId) {
   queuePaneId = paneId;
   queuePaneLastText = paneCache.get(paneId) ?? null;
-  refreshQueuePane(true);
+  refreshQueuePane(true, true);  // force, and jump to latest output on this first paint
   restartQueuePaneTimer();
 }
 // The poll runs regardless of the auto-refresh setting — see refreshPaneModal
@@ -1286,17 +1293,21 @@ function stopQueuePaneCapture() {
   clearInterval(queuePaneTimer);
   queuePaneTimer = null; queuePaneId = null; queuePaneLastText = null;
 }
-async function refreshQueuePane(force = false) {
+async function refreshQueuePane(force = false, forceBottom = false) {
   if (!queuePaneId) return;
   const pre = $('queue-pane-cap'), dot = $('queue-refresh-dot');
   if (!pre) return;
   try {
-    const text = (await capturePane(queuePaneId)) || '(empty)';
-    if (text === queuePaneLastText) { if (dot) dot.hidden = true; return; }
+    const text = (await capturePane(queuePaneId, PANE_SCROLLBACK)) || '(empty)';
+    if (text === queuePaneLastText) {
+      if (dot) dot.hidden = true;
+      if (forceBottom) pre.scrollTop = pre.scrollHeight;  // cached content shown from the top; drop to latest
+      return;
+    }
     if (force || isAutoRefresh()) {
       queuePaneLastText = text;
       paneCache.set(queuePaneId, text);
-      pre.textContent = text;
+      applyPaneText(pre, text, forceBottom);
       if (dot) dot.hidden = true;
     } else if (dot) {
       dot.hidden = false;
@@ -1522,10 +1533,24 @@ async function loadPanes() {
 }
 
 // ---- tmux pane tunnelling ----
-async function capturePane(pane) {
-  const r = await fetch('/api/pane/capture', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ pane }) });
+async function capturePane(pane, lines) {
+  const body = lines ? { pane, lines } : { pane };
+  const r = await fetch('/api/pane/capture', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(await r.text());
   return (await r.json()).content;
+}
+
+// applyPaneText paints captured text into a .pane-cap <pre> while keeping the
+// scroll position sensible: if the viewer was pinned to the bottom (following
+// live output) it stays pinned; otherwise its scroll offset is preserved so a
+// refresh never yanks you away from something you scrolled up to read. Pass
+// forceBottom on first paint to start at the latest output, terminal-style.
+function applyPaneText(pre, text, forceBottom) {
+  if (!pre) return;
+  const atBottom = forceBottom || (pre.scrollHeight - pre.scrollTop - pre.clientHeight < 8);
+  const prevTop = pre.scrollTop;
+  pre.textContent = text;
+  pre.scrollTop = atBottom ? pre.scrollHeight : prevTop;
 }
 // payload is {pane, text} for literal text or {pane, key} for a named key.
 async function sendPaneKeys(payload) {

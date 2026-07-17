@@ -151,6 +151,9 @@ func (s *Store) rewritePanes() {
 const (
 	maxEvents = 100
 	maxAge    = 7 * 24 * time.Hour
+	// Upper bound on scrollback lines a capture request may ask for, so a huge
+	// history-limit can't turn one capture into a multi-megabyte response.
+	maxCaptureLines = 5000
 )
 
 // retain drops events older than maxAge and caps the count at maxEvents. Events
@@ -593,16 +596,29 @@ func main() {
 		writeJSON(w, map[string]any{"ok": true, "output": string(out)})
 	})
 
-	// Return the visible contents of a tmux pane for inline display.
+	// Return the contents of a tmux pane for inline display. With lines > 0,
+	// includes that many lines of scrollback history above the visible screen
+	// (capped, and ultimately bounded by tmux's history-limit); otherwise just
+	// the visible screen.
 	mux.HandleFunc("POST /api/pane/capture", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Pane string `json:"pane"`
+			Pane  string `json:"pane"`
+			Lines int    `json:"lines"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || !paneID.MatchString(in.Pane) {
 			http.Error(w, "pane must match %N", http.StatusBadRequest)
 			return
 		}
-		out, err := exec.Command("tmux", "capture-pane", "-t", in.Pane, "-p").CombinedOutput()
+		args := []string{"capture-pane", "-t", in.Pane, "-p"}
+		if in.Lines > 0 {
+			if in.Lines > maxCaptureLines {
+				in.Lines = maxCaptureLines
+			}
+			// -S -N starts N lines back in history; end defaults to the bottom
+			// of the visible screen.
+			args = append(args, "-S", fmt.Sprintf("-%d", in.Lines))
+		}
+		out, err := exec.Command("tmux", args...).CombinedOutput()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("%v: %s", err, out), http.StatusInternalServerError)
 			return

@@ -75,7 +75,7 @@ go in that pane.
 | `POST /api/panes/unack-all` | mark every pane unread again (undo a batch of acks) |
 | `GET /api/stream` | SSE stream of new events (drives UI toasts/notifications) |
 | `POST /api/goto` | `{target: "slug-@N-%N"}` — runs `goto-pane-location target` |
-| `POST /api/pane/capture` | `{pane: "%N"}` — visible contents of the tmux pane (`capture-pane -p`) |
+| `POST /api/pane/capture` | `{pane: "%N", lines?: N}` — pane contents; `lines` adds N lines of scrollback (`capture-pane -p -S -N`, capped) |
 | `POST /api/pane/keys` | `{pane: "%N", text: "..."}` (literal) or `{pane: "%N", key: "Enter"}` (named key) |
 
 ## Claude Code hooks
