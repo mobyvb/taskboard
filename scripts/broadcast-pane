@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Post an event for the current tmux pane to taskboard, so it shows up in the
+# UI like a claude worker would -- but with no claude session attached.
+# Usage: broadcast-pane [-p PORT] [-t TITLE] [-d DESC] [-e EVENT_TYPE]
+set -uo pipefail
+
+PORT=8723
+PORT_SET=""
+TITLE=""
+DESC=""
+EVENT_TYPE="broadcast"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p|--port) PORT="$2"; PORT_SET=1; shift 2 ;;
+    -t|--title) TITLE="$2"; shift 2 ;;
+    -d|--desc) DESC="$2"; shift 2 ;;
+    -e|--type) EVENT_TYPE="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: broadcast-pane [-p PORT] [-t TITLE] [-d DESC] [-e EVENT_TYPE]" >&2
+      exit 0 ;;
+    *) echo "broadcast-pane: unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+
+# An explicit -p always wins; TASKBOARD_URL is only a fallback default, so a
+# stale/ambient env var can't silently redirect a broadcast to the wrong server.
+if [[ -n "$PORT_SET" ]]; then
+  SERVER="http://127.0.0.1:$PORT"
+else
+  SERVER="${TASKBOARD_URL:-http://127.0.0.1:$PORT}"
+fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+pane_loc="${PANE_LOC:-}"
+if [[ -z "$pane_loc" ]]; then
+  pane_loc="$("$SCRIPT_DIR/get-pane-location" 2>/dev/null || true)"
+fi
+if [[ -z "$pane_loc" ]]; then
+  echo "broadcast-pane: could not determine pane location (not in tmux, or PANE_LOC unset)" >&2
+  exit 1
+fi
+
+cwd="$(pwd)"
+[[ -z "$TITLE" ]] && TITLE="$(basename "$cwd")"
+
+jq -n \
+  --arg type "$EVENT_TYPE" \
+  --arg title "$TITLE" \
+  --arg desc "$DESC" \
+  --arg pane "$pane_loc" \
+  --arg cwd "$cwd" \
+  '{
+    event_type: $type,
+    title: $title,
+    description: $desc,
+    metadata: { pane_loc: $pane, cwd: $cwd }
+  }' | curl -sS -m 2 -X POST "$SERVER/api/events" \
+        -H 'Content-Type: application/json' -d @-
+echo
