@@ -31,25 +31,34 @@ type Event struct {
 	Time        time.Time       `json:"time"`
 }
 
-type Worker struct {
-	Key      string    `json:"key"`
-	Title    string    `json:"title"`
-	PaneLoc  string    `json:"pane_loc,omitempty"`
-	LastType string    `json:"last_event_type"`
-	LastSeen time.Time `json:"last_seen"`
+// Pane is the persistent record for a single tmux pane's lifecycle. A pane
+// may host a series of unrelated claude sessions over time (identified via
+// SessionID, which can change), but PaneLoc is its stable identity. Unread
+// and Tab are pane-lifecycle state, not tied to any one session or event, and
+// are acked/assigned from the queue, global stream, or a tab's stream
+// interchangeably.
+type Pane struct {
+	Key       string    `json:"key"`
+	PaneLoc   string    `json:"pane_loc,omitempty"`
+	SessionID string    `json:"session_id,omitempty"`
+	Title     string    `json:"title"`
+	Cwd       string    `json:"cwd,omitempty"`
+	LastType  string    `json:"last_event_type"`
+	LastSeen  time.Time `json:"last_seen"`
+	Unread    bool      `json:"unread"`
+	Tab       string    `json:"tab,omitempty"`
 }
 
-// Store holds events and active workers, mirrored to dataDir: events are
-// appended to events.jsonl and replayed on startup (which also rebuilds the
-// workers map); the read marker lives in read.txt.
+// Store holds events and panes, mirrored to dataDir: events are appended to
+// events.jsonl and replayed on startup; pane state (ack/tab/etc., which isn't
+// derivable from events alone) is snapshotted to panes.json on every change.
 type Store struct {
-	mu       sync.Mutex
-	events   []Event
-	nextID   int64
-	lastRead int64
-	workers  map[string]*Worker
-	subs     map[chan []byte]struct{}
-	dataDir  string
+	mu      sync.Mutex
+	events  []Event
+	nextID  int64
+	panes   map[string]*Pane
+	subs    map[chan []byte]struct{}
+	dataDir string
 }
 
 func NewStore(dataDir string) (*Store, error) {
@@ -58,7 +67,7 @@ func NewStore(dataDir string) (*Store, error) {
 	}
 	s := &Store{
 		nextID:  1,
-		workers: map[string]*Worker{},
+		panes:   map[string]*Pane{},
 		subs:    map[chan []byte]struct{}{},
 		dataDir: dataDir,
 	}
@@ -79,18 +88,22 @@ func NewStore(dataDir string) (*Store, error) {
 		}
 		s.events = retain(s.events)
 		s.rewriteEvents()
-		for _, e := range s.events {
-			s.updateWorkers(e)
-		}
 	}
-	if data, err := os.ReadFile(s.readPath()); err == nil {
-		fmt.Sscanf(string(data), "%d", &s.lastRead)
+	if data, err := os.ReadFile(s.panesPath()); err == nil {
+		var panes []*Pane
+		if err := json.Unmarshal(data, &panes); err != nil {
+			log.Printf("skipping corrupt panes file: %v", err)
+		} else {
+			for _, p := range panes {
+				s.panes[p.Key] = p
+			}
+		}
 	}
 	return s, nil
 }
 
 func (s *Store) eventsPath() string { return filepath.Join(s.dataDir, "events.jsonl") }
-func (s *Store) readPath() string   { return filepath.Join(s.dataDir, "read.txt") }
+func (s *Store) panesPath() string  { return filepath.Join(s.dataDir, "panes.json") }
 
 // rewriteEvents compacts events.jsonl down to the currently retained events,
 // dropping anything pruned on load. Written via a temp file + rename so a crash
@@ -110,6 +123,28 @@ func (s *Store) rewriteEvents() {
 	}
 	if err := os.Rename(tmp, s.eventsPath()); err != nil {
 		log.Printf("compact events: %v", err)
+	}
+}
+
+// rewritePanes snapshots the current pane map to panes.json. Must be called
+// with the lock held.
+func (s *Store) rewritePanes() {
+	panes := make([]*Pane, 0, len(s.panes))
+	for _, p := range s.panes {
+		panes = append(panes, p)
+	}
+	data, err := json.Marshal(panes)
+	if err != nil {
+		log.Printf("marshal panes: %v", err)
+		return
+	}
+	tmp := s.panesPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		log.Printf("persist panes: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, s.panesPath()); err != nil {
+		log.Printf("persist panes: %v", err)
 	}
 }
 
@@ -133,6 +168,19 @@ func retain(events []Event) []Event {
 	return events
 }
 
+// retainPanes drops read panes that haven't seen activity in maxAge, so a
+// stream of short-lived panes doesn't grow panes.json forever. Unread panes
+// and ones with a tab assignment are kept regardless, since those represent
+// state the user hasn't dealt with or has deliberately organized.
+func retainPanes(panes map[string]*Pane) {
+	cutoff := time.Now().Add(-maxAge)
+	for key, p := range panes {
+		if !p.Unread && p.Tab == "" && p.LastSeen.Before(cutoff) {
+			delete(panes, key)
+		}
+	}
+}
+
 func (s *Store) Add(e Event) Event {
 	s.mu.Lock()
 	e.ID = s.nextID
@@ -140,7 +188,7 @@ func (s *Store) Add(e Event) Event {
 	e.Time = time.Now()
 	s.events = append(s.events, e)
 	s.events = retain(s.events)
-	s.updateWorkers(e)
+	s.updatePane(e)
 	if line, err := json.Marshal(e); err == nil {
 		f, err := os.OpenFile(s.eventsPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err == nil {
@@ -161,53 +209,48 @@ func (s *Store) Add(e Event) Event {
 	return e
 }
 
-// updateWorkers must be called with the lock held.
-func (s *Store) updateWorkers(e Event) {
+// updatePane must be called with the lock held. The pane's identity is its
+// tmux location (pane_loc); session_id is a fallback only for events that
+// somehow lack pane_loc, and is otherwise just an attribute of the pane that
+// can change freely as claude sessions come and go in the same pane.
+func (s *Store) updatePane(e Event) {
 	var meta struct {
 		SessionID string `json:"session_id"`
 		PaneLoc   string `json:"pane_loc"`
+		Cwd       string `json:"cwd"`
 	}
 	json.Unmarshal(e.Metadata, &meta)
-	key := meta.SessionID
+	key := meta.PaneLoc
 	if key == "" {
-		key = meta.PaneLoc
+		key = meta.SessionID
 	}
 	if key == "" {
 		return
 	}
-	if e.Type == "session_end" {
-		delete(s.workers, key)
-		return
-	}
-	w := s.workers[key]
-	if w == nil {
-		w = &Worker{Key: key}
-		s.workers[key] = w
-	}
-	if e.Title != "" {
-		w.Title = e.Title
+	p := s.panes[key]
+	if p == nil {
+		p = &Pane{Key: key}
+		s.panes[key] = p
 	}
 	if meta.PaneLoc != "" {
-		w.PaneLoc = meta.PaneLoc
+		p.PaneLoc = meta.PaneLoc
 	}
-	w.LastType = e.Type
-	w.LastSeen = e.Time
-}
-
-// MarkRead marks all events with ID <= id as read.
-func (s *Store) MarkRead(id int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lastRead = id
-	if err := os.WriteFile(s.readPath(), []byte(fmt.Sprintf("%d\n", id)), 0o644); err != nil {
-		log.Printf("persist read marker: %v", err)
+	if meta.Cwd != "" {
+		p.Cwd = meta.Cwd
 	}
-}
-
-func (s *Store) LastRead() int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.lastRead
+	if e.Title != "" {
+		p.Title = e.Title
+	}
+	p.LastType = e.Type
+	p.LastSeen = e.Time
+	if e.Type == "session_end" {
+		p.SessionID = ""
+	} else {
+		p.SessionID = meta.SessionID
+		p.Unread = true
+	}
+	retainPanes(s.panes)
+	s.rewritePanes()
 }
 
 func (s *Store) Events() []Event {
@@ -218,27 +261,55 @@ func (s *Store) Events() []Event {
 	return out
 }
 
-// ForgetWorker removes a worker regardless of its last event, for clearing
-// entries orphaned by a missed session_end (e.g. pane killed without a clean
-// exit). Reports whether the key was present.
-func (s *Store) ForgetWorker(key string) bool {
+// ForgetPane removes a pane's record entirely (including its tab assignment),
+// for clearing entries that no longer reflect anything useful. Reports
+// whether the key was present.
+func (s *Store) ForgetPane(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.workers[key]; !ok {
+	if _, ok := s.panes[key]; !ok {
 		return false
 	}
-	delete(s.workers, key)
+	delete(s.panes, key)
+	s.rewritePanes()
 	return true
 }
 
-func (s *Store) Workers() []Worker {
+func (s *Store) Panes() []Pane {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Worker, 0, len(s.workers))
-	for _, w := range s.workers {
-		out = append(out, *w)
+	out := make([]Pane, 0, len(s.panes))
+	for _, p := range s.panes {
+		out = append(out, *p)
 	}
 	return out
+}
+
+// SetPaneUnread sets a pane's ack state. Reports whether the key was present.
+func (s *Store) SetPaneUnread(key string, unread bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.panes[key]
+	if p == nil {
+		return false
+	}
+	p.Unread = unread
+	s.rewritePanes()
+	return true
+}
+
+// SetPaneTab assigns a pane to a tab (tab == "" unassigns it, i.e. Home).
+// Reports whether the key was present.
+func (s *Store) SetPaneTab(key, tab string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.panes[key]
+	if p == nil {
+		return false
+	}
+	p.Tab = tab
+	s.rewritePanes()
+	return true
 }
 
 func (s *Store) Subscribe() chan []byte {
@@ -282,7 +353,7 @@ func main() {
 		defaultScripts = u
 	}
 	scriptsPath := flag.String("scripts", defaultScripts, "directory containing helper scripts (goto-pane-location, etc.); overridden by TASKBOARD_SCRIPTS_PATH env var")
-	dataDir := flag.String("data", filepath.Join(home, ".taskboard"), "directory for persisted events and read marker")
+	dataDir := flag.String("data", filepath.Join(home, ".taskboard"), "directory for persisted events and pane state")
 	flag.Var(&allow, "allow", "allowed filename to serve (repeatable, default context.txt)")
 	flag.Parse()
 	if len(allow) == 0 {
@@ -382,19 +453,7 @@ func main() {
 	})
 
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"events": store.Events(), "last_read": store.LastRead()})
-	})
-
-	mux.HandleFunc("POST /api/read", func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			ID int64 `json:"id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		store.MarkRead(in.ID)
-		writeJSON(w, map[string]any{"ok": true, "last_read": in.ID})
+		writeJSON(w, store.Events())
 	})
 
 	mux.HandleFunc("POST /api/events", func(w http.ResponseWriter, r *http.Request) {
@@ -416,11 +475,11 @@ func main() {
 		writeJSON(w, e)
 	})
 
-	mux.HandleFunc("GET /api/workers", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, store.Workers())
+	mux.HandleFunc("GET /api/panes", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, store.Panes())
 	})
 
-	mux.HandleFunc("DELETE /api/workers", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /api/panes", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Key string `json:"key"`
 		}
@@ -428,8 +487,40 @@ func main() {
 			http.Error(w, "key is required", http.StatusBadRequest)
 			return
 		}
-		if !store.ForgetWorker(in.Key) {
-			http.Error(w, "no such worker", http.StatusNotFound)
+		if !store.ForgetPane(in.Key) {
+			http.Error(w, "no such pane", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	mux.HandleFunc("POST /api/panes/ack", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Key    string `json:"key"`
+			Unread bool   `json:"unread"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Key == "" {
+			http.Error(w, "key is required", http.StatusBadRequest)
+			return
+		}
+		if !store.SetPaneUnread(in.Key, in.Unread) {
+			http.Error(w, "no such pane", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	mux.HandleFunc("POST /api/panes/tab", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Key string `json:"key"`
+			Tab string `json:"tab"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Key == "" {
+			http.Error(w, "key is required", http.StatusBadRequest)
+			return
+		}
+		if !store.SetPaneTab(in.Key, in.Tab) {
+			http.Error(w, "no such pane", http.StatusNotFound)
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})

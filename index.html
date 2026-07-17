@@ -73,16 +73,16 @@
      in a centered flex overlay) — that's what read as "buttons moving
      around" between cards. A constant-size dialog with an internal scroll
      region keeps the header and its controls perfectly still. */
-  .queue-dialog { display: flex; flex-direction: column; gap: 10px; width: min(560px, 95vw); height: min(600px, 88vh); background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .queue-dialog { display: flex; flex-direction: column; gap: 10px; width: 97vw; height: 95vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
   .queue-head { display: flex; align-items: center; gap: 10px; flex: none; }
   .queue-head strong { font-size: 14px; }
   .queue-pos { flex: 1; font-size: 11px; color: #8b95a5; }
-  .queue-card-host { flex: 1; overflow: auto; min-height: 0; }
+  .queue-card-host { flex: 1; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
   /* Transition only applies while .q-anim is present; toggled by JS around a
      forced reflow so the same rule reliably re-triggers on every swap. */
   .queue-card-host.q-anim { transition: opacity .16s ease, transform .16s ease; }
-  .queue-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-  .queue-pane .pane-cap { max-height: 240px; }
+  .queue-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; flex: 1; min-height: 0; }
+  .queue-pane .pane-cap { flex: 1; max-height: none; }
   /* pane modal (own layer, above the columns and above the queue modal) */
   #pane-modal { position: fixed; inset: 0; z-index: 31; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #pane-modal[hidden] { display: none; }
@@ -91,13 +91,14 @@
   .pane-dialog-head strong { font-size: 14px; }
   .pane-dialog-head #pane-status { flex: 1; font-size: 11px; }
   .pane-cap { margin: 0; padding: 10px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
+  .autorefresh { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b95a5; white-space: nowrap; }
+  .update-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e0a855; margin-left: 5px; vertical-align: middle; }
+  .update-dot[hidden] { display: none; }
   .pane-keys { display: flex; flex-wrap: wrap; gap: 6px; }
   .send-row { display: flex; gap: 6px; }
   .send-row input { flex: 1; min-width: 0; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 5px 10px; font: 13px monospace; }
   details.ack-fold { background: none; border: none; margin-top: 6px; }
   details.ack-fold > summary { padding: 6px 0; color: #8b95a5; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-  .read-bar { display: flex; align-items: center; gap: 8px; color: #e05555; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 10px 0; }
-  .read-bar::before, .read-bar::after { content: ''; flex: 1; border-top: 2px solid #e05555; }
   .worker { display: inline-flex; gap: 8px; align-items: center; background: #1c2b22; border: 1px solid #2f4a3a; border-radius: 6px; padding: 5px 10px; margin: 0 8px 8px 0; }
   .move-pop { position: absolute; z-index: 20; max-width: 260px; background: #1c1f26; border: 1px solid #3c424e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
   .move-pop .move-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -153,7 +154,8 @@
     <div class="pane-dialog-head">
       <strong id="pane-title">pane</strong>
       <span id="pane-status" class="muted"></span>
-      <button onclick="refreshPaneModal()">refresh</button>
+      <label class="autorefresh"><input type="checkbox" id="pane-autorefresh" onchange="setAutoRefreshFromCheckbox(this.checked)"> auto-refresh</label>
+      <button onclick="refreshPaneModal(true)" title="refresh now">refresh<span id="pane-refresh-dot" class="update-dot" hidden title="pane contents changed"></span></button>
       <button onclick="closePaneModal()">close</button>
     </div>
     <div id="pane-info" class="meta"></div>
@@ -187,25 +189,28 @@ function elapsed(date) {
 }
 function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
 
-// ---- tab state (localStorage) ----
-// taskboard_tabs:      { [tabName]: { files: string[], workers: string[] } }
-// taskboard_tab_reads: { "__home__": lastReadId, [tabName]: lastReadId }
+// ---- tab state ----
+// Tabs hold files client-side (taskboard_tabs, localStorage); which tab a
+// pane belongs to is server-persisted on the Pane itself (see "panes"
+// below) so it survives restarts and is shared across every view.
+// taskboard_tabs:      { [tabName]: { files: string[] } }
 // taskboard_tab_groups:{ [groupName]: string[] }  -- second level: groups of tabs
-const TABS_KEY = 'taskboard_tabs', READS_KEY = 'taskboard_tab_reads', HOME = '__home__';
+const TABS_KEY = 'taskboard_tabs', HOME = '__home__';
 const GROUPS_KEY = 'taskboard_tab_groups', ALL = '__all__';
 // Optional tmux "goto" location per tab (a goto target, name-@N-%N).
 const LOCS_KEY = 'taskboard_tab_locs';
 const gotoTargetRe = /^[A-Za-z0-9._-]*@[0-9]+-%[0-9]+$/;
-// The unified event stream is its own read scope (see renderStream); unlike
-// tabs it tracks per-event acknowledgment rather than a cumulative marker.
+// The unified event stream is its own view of the same panes, independent of
+// the current tab/group.
 const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
-const ACKED_KEY = 'taskboard_stream_acked';
-let streamFloor = null;  // events with id <= this predate the page load and are hidden
+// Auto-refreshing a pane capture resets scroll position and kills any
+// in-progress text selection, so it's opt-in and defaults off.
+const AUTOREFRESH_KEY = 'taskboard_pane_autorefresh';
+function isAutoRefresh() { return localStorage.getItem(AUTOREFRESH_KEY) === '1'; }
+function setAutoRefresh(on) { localStorage.setItem(AUTOREFRESH_KEY, on ? '1' : '0'); }
 
 function loadTabState() { try { return JSON.parse(localStorage.getItem(TABS_KEY)) || {}; } catch { return {}; } }
 function saveTabState(s) { localStorage.setItem(TABS_KEY, JSON.stringify(s)); }
-function loadReads() { try { return JSON.parse(localStorage.getItem(READS_KEY)) || {}; } catch { return {}; } }
-function saveReads(r) { localStorage.setItem(READS_KEY, JSON.stringify(r)); }
 function loadGroups() { try { return JSON.parse(localStorage.getItem(GROUPS_KEY)) || {}; } catch { return {}; } }
 function saveGroups(g) { localStorage.setItem(GROUPS_KEY, JSON.stringify(g)); }
 
@@ -235,19 +240,19 @@ function getTabLoc(name) { return loadLocs()[name] || ''; }
 function setTabLoc(name, loc) { const l = loadLocs(); if (loc) l[name] = loc; else delete l[name]; saveLocs(l); }
 // Drop locations for tabs that no longer exist.
 function pruneLocs() {
-  const tabs = loadTabState(), l = loadLocs();
+  const names = new Set(allTabNames()), l = loadLocs();
   let changed = false;
-  for (const name of Object.keys(l)) if (!tabs[name]) { delete l[name]; changed = true; }
+  for (const name of Object.keys(l)) if (!names.has(name)) { delete l[name]; changed = true; }
   if (changed) saveLocs(l);
 }
 
 // pruneGroups drops references to tabs that no longer exist and any group left
 // empty, so closing/pruning a tab can't leave a stale group behind.
 function pruneGroups() {
-  const tabs = loadTabState(), g = loadGroups();
+  const names = new Set(allTabNames()), g = loadGroups();
   let changed = false;
   for (const [name, list] of Object.entries(g)) {
-    const kept = list.filter(t => tabs[t]);
+    const kept = list.filter(t => names.has(t));
     if (kept.length !== list.length) { g[name] = kept; changed = true; }
     if (!kept.length) { delete g[name]; changed = true; }
   }
@@ -258,71 +263,66 @@ function getTabForFile(path) {
   for (const [n, t] of Object.entries(loadTabState())) if (t.files?.includes(path)) return n;
   return null;
 }
-function getTabForWorker(key) {
-  for (const [n, t] of Object.entries(loadTabState())) if (t.workers?.includes(key)) return n;
-  return null;
+// A pane's assigned tab lives on the Pane record itself (server-persisted),
+// not in localStorage — see "panes" below.
+function getTabForPane(key) { return paneByKey(key)?.tab || null; }
+
+// A tab "exists" if it holds files (localStorage) or has at least one pane
+// assigned to it (server-side) — the two stores are independent, so tab
+// existence is the union of both.
+function allTabNames() {
+  const names = new Set(Object.keys(loadTabState()));
+  for (const p of allPanes) if (p.tab) names.add(p.tab);
+  return [...names];
 }
 
-// assignToTab moves an item to a named tab; tabName === HOME (or empty) just
-// unassigns it. Tabs left with no items are pruned along with their read marker.
-function assignToTab(tabName, type, id) {
-  const state = loadTabState(), reads = loadReads(), field = type === 'file' ? 'files' : 'workers';
+// assignFileToTab moves a file to a named tab; tabName === HOME (or empty)
+// just unassigns it. Tabs left with no files and no assigned panes are pruned.
+function assignFileToTab(tabName, path) {
+  const state = loadTabState();
   for (const t of Object.values(state)) {
-    if (t[field]) { const i = t[field].indexOf(id); if (i >= 0) t[field].splice(i, 1); }
+    if (t.files) { const i = t.files.indexOf(path); if (i >= 0) t.files.splice(i, 1); }
   }
   if (tabName && tabName !== HOME) {
-    const t = state[tabName] || (state[tabName] = { files: [], workers: [] });
-    if (!t[field].includes(id)) t[field].push(id);
+    const t = state[tabName] || (state[tabName] = { files: [] });
+    if (!t.files.includes(path)) t.files.push(path);
   }
   for (const [n, t] of Object.entries(state)) {
-    if (!(t.files?.length) && !(t.workers?.length)) { delete state[n]; delete reads[n]; }
+    if (!(t.files?.length) && !allPanes.some(p => p.tab === n)) delete state[n];
   }
-  saveTabState(state); saveReads(reads);
-}
-
-function getTabRead(tabName) { return loadReads()[tabName] || 0; }
-function setTabRead(tabName, id) {
-  const reads = loadReads(); reads[tabName] = id; saveReads(reads);
-  // Home mirrors to the server marker for backward compat with read.txt.
-  if (tabName === HOME)
-    fetch('/api/read', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) }).catch(() => {});
+  saveTabState(state);
 }
 
 // True if the given item belongs to tabName (HOME = unassigned).
 function tabFilter(tabName, type, id) {
-  const a = type === 'file' ? getTabForFile(id) : getTabForWorker(id);
+  const a = type === 'file' ? getTabForFile(id) : getTabForPane(id);
   return tabName === HOME ? a === null : a === tabName;
 }
 
 // ---- caches + current tab ----
-let allFiles = [], allWorkers = [], allEvents = [];
+let allFiles = [], allPanes = [], allEvents = [];
 let renderedFilePaths = [];
 let currentTab = HOME;
 let currentGroup = ALL;  // which group's tabs the tab bar is filtered to (ALL = every tab)
 
-// A worker's identity: session_id first (matches the server's worker key),
-// pane_loc as fallback.
-function keyOf(meta) { try { return meta?.session_id || meta?.pane_loc || null; } catch { return null; } }
+// A pane's identity: pane_loc (the tmux location) first, since that's the
+// stable thing across the pane's lifecycle; session_id is a fallback only
+// for events that somehow lack pane_loc. Matches the server's Pane key.
+function keyOf(meta) { try { return meta?.pane_loc || meta?.session_id || null; } catch { return null; } }
+function paneKey(p) { return p.pane_loc || p.session_id || null; }
+function paneByKey(key) { return allPanes.find(p => paneKey(p) === key) || null; }
 
 function filesForTab(tabName) { return allFiles.filter(f => tabFilter(tabName, 'file', f.path)); }
-function workersForTab(tabName) { return allWorkers.filter(w => tabFilter(tabName, 'worker', w.key)); }
+function panesForTab(tabName) { return allPanes.filter(p => tabFilter(tabName, 'pane', paneKey(p))); }
 
-// Most-recent event per worker key, filtered to a tab; newest first.
-function eventsForTab(tabName) {
-  const seen = new Set(), out = [];
-  for (const e of [...allEvents].reverse()) {
-    const k = keyOf(e.metadata);
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    if (tabFilter(tabName, 'worker', k)) out.push(e);
-  }
-  return out;
+function tabUnread(tabName) { return panesForTab(tabName).filter(p => p.unread).length; }
+function tabLastTime(tabName) {
+  const t = panesForTab(tabName).reduce((m, p) => Math.max(m, p.last_seen ? new Date(p.last_seen).getTime() : 0), 0);
+  return t ? new Date(t) : null;
 }
-function tabUnread(tabName) { const r = getTabRead(tabName); return eventsForTab(tabName).filter(e => e.id > r).length; }
-function tabLastTime(tabName) { const ev = eventsForTab(tabName); return ev.length ? new Date(ev[0].time) : null; }
 
-// Most-recent activity in a tab: latest event time or, failing that, newest file
-// mtime. Drives both the tab ordering and the elapsed-time label.
+// Most-recent activity in a tab: latest pane activity or, failing that, newest
+// file mtime. Drives both the tab ordering and the elapsed-time label.
 function tabActivity(tabName) {
   let t = 0;
   const lt = tabLastTime(tabName); if (lt) t = lt.getTime();
@@ -331,7 +331,7 @@ function tabActivity(tabName) {
 }
 // Named tabs ordered most-recent first; ties broken by name.
 function orderedTabNames() {
-  return Object.keys(loadTabState()).sort((a, b) => tabActivity(b) - tabActivity(a) || a.localeCompare(b));
+  return allTabNames().sort((a, b) => tabActivity(b) - tabActivity(a) || a.localeCompare(b));
 }
 
 // A group's activity/unread aggregate over its member tabs.
@@ -489,14 +489,15 @@ function focusTab(name) {
   renderAll();
 }
 
-// closeTab forgets a tab and its read marker. Its files/workers are no longer
-// claimed by any tab, so they (and their events) fall back to Home.
-function closeTab(name) {
+// closeTab forgets a tab. Its files and panes are no longer claimed by any
+// tab, so they (and their events) fall back to Home.
+async function closeTab(name) {
   if (name === HOME) return;
-  const state = loadTabState(), reads = loadReads();
-  delete state[name]; delete reads[name];
-  saveTabState(state); saveReads(reads);
+  const state = loadTabState();
+  delete state[name];
+  saveTabState(state);
   setTabLoc(name, '');
+  await Promise.all(allPanes.filter(p => p.tab === name).map(p => setPaneTab(paneKey(p), '')));
   if (currentTab === name) currentTab = HOME;
   renderAll();
 }
@@ -597,57 +598,57 @@ async function loadFiles() {
   else refreshOpenFiles();
 }
 
-// ---- workers ----
+// ---- panes ----
 function renderWorkers() {
-  const workers = workersForTab(currentTab);
-  $('workers').innerHTML = workers.length ? '' : '<span class="muted">none</span>';
-  for (const w of workers) {
+  const panes = panesForTab(currentTab);
+  $('workers').innerHTML = panes.length ? '' : '<span class="muted">none</span>';
+  for (const p of panes) {
+    const k = paneKey(p);
     const d = document.createElement('span');
     d.className = 'worker';
-    d.innerHTML = `<strong>${esc(w.title || w.key)}</strong>
-      <span class="muted">${esc(w.last_event_type)}</span>
-      ${w.pane_loc ? `<button onclick="gotoPane('${esc(w.pane_loc)}')">goto</button>` : ''}`;
+    d.innerHTML = `<strong>${esc(p.title || k)}</strong>
+      <span class="muted">${esc(p.last_event_type)}</span>
+      ${p.pane_loc ? `<button onclick="gotoPane('${esc(p.pane_loc)}')">goto</button>` : ''}`;
     const mv = document.createElement('button');
     mv.textContent = 'tab ▾';
-    mv.onclick = e => { e.preventDefault(); promptMove('worker', w.key, mv); };
+    mv.onclick = e => { e.preventDefault(); promptMove('pane', k, mv); };
     d.appendChild(mv);
     const forget = document.createElement('button');
     forget.textContent = 'forget';
-    forget.title = 'remove this worker from the active list';
-    forget.onclick = e => { e.preventDefault(); forgetWorker(w.key); };
+    forget.title = 'remove this pane from the active list (including its tab assignment)';
+    forget.onclick = e => { e.preventDefault(); forgetPane(k); };
     d.appendChild(forget);
     $('workers').appendChild(d);
   }
 }
 
-async function forgetWorker(key) {
-  if (!confirm('Forget this worker? It will reappear if it sends another event.')) return;
-  const r = await fetch('/api/workers', {
+async function forgetPane(key) {
+  if (!confirm('Forget this pane? It will reappear (unassigned) if it sends another event.')) return;
+  const r = await fetch('/api/panes', {
     method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key })
   });
   if (!r.ok) { toast('forget failed: ' + await r.text()); return; }
-  loadWorkers();
+  loadPanes();
 }
 
 // ---- events ----
-// Events render under a "scope": a tab name for the per-tab queue, or STREAM
-// for the unified stream. Tabs use a cumulative read marker; the stream tracks
-// per-event acknowledgment. Neither ever affects the other.
-function isEventRead(e, scope) { return scope === STREAM ? isAcked(e.id) : e.id <= getTabRead(scope); }
+// A pane's ack state (unread/acked) and tab assignment are server-persisted
+// (see loadPanes/setPaneUnread/setPaneTab) and shared across every view —
+// acking or reassigning in the queue, global stream, or a tab's stream is
+// instantly reflected everywhere else.
+function isEventRead(pane) { return !pane.unread; }
 
 // Collapse a leading $HOME (macOS /Users/x or Linux /home/x) to ~ for display.
 function abbrevPath(p) { return p ? p.replace(/^\/(?:Users|home)\/[^/]+/, '~') : ''; }
 
-// Readonly info chips for an event: pane, cwd, and — when includeTab — the
-// worker's tab and group. Returns an array of HTML strings.
-function eventChips(e, includeTab) {
-  const md = e.metadata || {};
-  const k = keyOf(e.metadata);
+// Readonly info chips for a pane: tmux location, cwd, and — when includeTab —
+// its tab and group. Returns an array of HTML strings.
+function paneChips(pane, includeTab) {
   const chips = [];
-  if (md.pane_loc) chips.push(`<span class="mi" title="tmux pane">⧉ ${esc(md.pane_loc)}</span>`);
-  if (md.cwd) chips.push(`<span class="mi cwd" title="${esc(md.cwd)}">${esc(abbrevPath(md.cwd))}</span>`);
-  if (includeTab && k) {
-    const dest = getTabForWorker(k);
+  if (pane.pane_loc) chips.push(`<span class="mi" title="tmux pane">⧉ ${esc(pane.pane_loc)}</span>`);
+  if (pane.cwd) chips.push(`<span class="mi cwd" title="${esc(pane.cwd)}">${esc(abbrevPath(pane.cwd))}</span>`);
+  if (includeTab) {
+    const dest = pane.tab || null;
     chips.push(`<span class="mi tab" title="tab">▤ ${esc(dest || 'Home')}</span>`);
     const grp = dest ? getGroupForTab(dest) : null;
     if (grp) chips.push(`<span class="mi group" title="group">▣ ${esc(grp)}</span>`);
@@ -655,17 +656,37 @@ function eventChips(e, includeTab) {
   return chips;
 }
 
-function renderEvent(e, scope, opts = {}) {
-  const isRead = isEventRead(e, scope);
+// Most-recent Event per pane key, for rendering a pane's latest notification
+// content (title/description/raw metadata). Panes whose triggering event has
+// aged out of the retained log fall back to the pane's own fields.
+function latestEventByKey() {
+  const seen = new Set(), out = new Map();
+  for (const e of [...allEvents].reverse()) {
+    const k = keyOf(e.metadata);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.set(k, e);
+  }
+  return out;
+}
+function eventForPane(pane, evByKey) {
+  const k = paneKey(pane);
+  return (k && evByKey.get(k)) || {
+    event_type: pane.last_event_type, title: pane.title, description: '', time: pane.last_seen,
+    metadata: { pane_loc: pane.pane_loc, session_id: pane.session_id, cwd: pane.cwd },
+  };
+}
+
+function renderCard(pane, e, scope, opts = {}) {
+  const isRead = isEventRead(pane);
   const div = document.createElement('div');
   div.className = 'event' + (isRead ? ' read' : '');
-  const md = e.metadata || {};
-  const pl = md.pane_loc || '';
-  const k = keyOf(e.metadata);
+  const pl = pane.pane_loc || '';
+  const k = paneKey(pane);
 
-  // Readonly info chips keep the action labels short; the worker's tab/group
+  // Readonly info chips keep the action labels short; the pane's tab/group
   // only add value in the stream. Full metadata stays behind "raw".
-  const chips = eventChips(e, scope === STREAM);
+  const chips = paneChips(pane, scope === STREAM);
 
   div.innerHTML = `<div class="top"><span class="type">${esc(e.event_type)}</span>
       <strong>${esc(e.title)}</strong>
@@ -683,27 +704,24 @@ function renderEvent(e, scope, opts = {}) {
     return b;
   };
   const paneId = (pl.match(/%\d+/) || [])[0];
-  if (pl) add('goto', `switch tmux to ${pl}`, () => gotoPane(pl, e.id, scope));
+  if (pl) add('goto', `switch tmux to ${pl}`, () => gotoPane(pl));
   // The queue overlay shows the pane inline instead (see renderQueueModal),
   // so it skips this button rather than opening a redundant second dialog.
-  if (paneId && !opts.skipPaneButton) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, e));
-  if (scope === STREAM) {
-    // Acknowledge this one event (move it below the fold), independent of others.
-    add(isRead ? 'un-ack' : 'ack',
-        isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
-        () => { isRead ? unackEvent(e.id) : ackEvent(e.id); onAckChanged(); });
-  } else {
-    add(isRead ? 'unread' : 'mark read',
-        isRead ? 'mark this and newer events unread' : 'mark this and older events read',
-        () => applyRead(scope, isRead ? e.id - 1 : e.id));
-  }
+  if (paneId && !opts.skipPaneButton) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, pane));
+  // Ack state is global for the pane — acking here also clears it in the
+  // queue, global stream, and its tab's stream. The queue overlay passes its
+  // own onAck (see renderQueueModal) so acking there advances to the next
+  // card instead of just disappearing.
+  add(isRead ? 'un-ack' : 'ack',
+      isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
+      () => (opts.onAck ? opts.onAck(k, isRead) : setPaneUnread(k, isRead)));
   if (k) {
-    // From the stream, jump to the worker's tab (its per-tab queue lives there).
+    // From the stream, jump to the pane's tab (its per-tab queue lives there).
     if (scope === STREAM) {
-      const dest = getTabForWorker(k) || HOME;
-      add('focus', "switch to this worker's tab", () => focusTab(dest));
+      const dest = pane.tab || HOME;
+      add('focus', "switch to this pane's tab", () => focusTab(dest));
     }
-    const mv = add('tab ▾', 'assign this worker to a tab', ev => { ev.preventDefault(); promptMove('worker', k, mv); });
+    const mv = add('tab ▾', 'assign this pane to a tab', ev => { ev.preventDefault(); promptMove('pane', k, mv); });
   }
   div.appendChild(actions);
 
@@ -718,33 +736,57 @@ function renderEvent(e, scope, opts = {}) {
 
 // ---- pane modal ----
 // The tmux tunnel opens in a modal on its own layer (the pane is usually wider
-// and taller than an event card), auto-refreshing its capture while open.
-let paneModal = { id: null, timer: null };
+// and taller than an event card). Auto-refresh is opt-in (see setAutoRefreshFromCheckbox)
+// since repainting the capture resets scroll position and kills any in-progress
+// text selection — disruptive if it fires while the user is mid-copy or the
+// real pane is mid-command. Even when on, a refresh that returns byte-identical
+// text skips the repaint entirely, so only genuine changes disturb the view.
+let paneModal = { id: null, timer: null, lastText: null };
 
-function openPaneModal(paneId, e) {
+function openPaneModal(paneId, pane) {
   paneModal.id = paneId;
+  paneModal.lastText = null;
   $('pane-title').textContent = 'pane ' + paneId;
   $('pane-status').textContent = '';
-  $('pane-info').innerHTML = eventChips(e, true).join('');  // context hidden behind the modal
+  $('pane-info').innerHTML = paneChips(pane, true).join('');  // context hidden behind the modal
   $('pane-input').value = '';
   $('pane-modal').hidden = false;
-  refreshPaneModal();
-  clearInterval(paneModal.timer);
-  paneModal.timer = setInterval(refreshPaneModal, 1500);  // keep the view live
+  $('pane-autorefresh').checked = isAutoRefresh();
+  $('pane-refresh-dot').hidden = true;
+  refreshPaneModal(true);
+  restartPaneModalTimer();
   $('pane-input').focus();
+}
+
+// The poll runs regardless of the auto-refresh setting, so that even with it
+// off we can flag "the pane changed, there's an update available" without
+// forcing a disruptive repaint — refreshPaneModal only applies the fetched
+// text (and clears the dot) when auto-refresh is on or force is set (manual
+// "refresh" click, or right after sending keys to the pane).
+function restartPaneModalTimer() {
+  clearInterval(paneModal.timer);
+  paneModal.timer = setInterval(() => refreshPaneModal(false), 1500);
 }
 
 function closePaneModal() {
   clearInterval(paneModal.timer);
-  paneModal = { id: null, timer: null };
+  paneModal = { id: null, timer: null, lastText: null };
   $('pane-modal').hidden = true;
 }
 
-async function refreshPaneModal() {
+async function refreshPaneModal(force = false) {
   if (!paneModal.id) return;
   try {
-    $('pane-cap').textContent = (await capturePane(paneModal.id)) || '(empty)';
+    const text = (await capturePane(paneModal.id)) || '(empty)';
     $('pane-status').textContent = '';
+    if (text === paneModal.lastText) { $('pane-refresh-dot').hidden = true; return; }
+    if (force || isAutoRefresh()) {
+      paneModal.lastText = text;
+      $('pane-cap').textContent = text;
+      $('pane-refresh-dot').hidden = true;
+    } else {
+      $('pane-refresh-dot').hidden = false;
+    }
   } catch (err) { $('pane-status').textContent = 'capture error'; }
 }
 
@@ -753,7 +795,7 @@ async function paneSend(payload) {
   if (!paneModal.id) return;
   try { await sendPaneKeys({ pane: paneModal.id, ...payload }); }
   catch (err) { toast('send failed: ' + err.message); return; }
-  setTimeout(refreshPaneModal, 120);
+  setTimeout(() => refreshPaneModal(true), 120);
 }
 
 // Send the typed text; with submit=true, follow it with Enter (i.e. run it).
@@ -765,99 +807,68 @@ async function paneSendText(submit) {
   $('pane-input').focus();
 }
 
-function readBar() {
-  const d = document.createElement('div');
-  d.className = 'read-bar';
-  d.textContent = 'read below';
-  return d;
+// orderPanes sorts unread-first, then most-recently-active first — the
+// ordering used everywhere a pane list is shown (tab stream, global stream,
+// queue).
+function orderPanes(panes) {
+  return [...panes].sort((a, b) => {
+    if (!!a.unread !== !!b.unread) return a.unread ? -1 : 1;
+    return new Date(b.last_seen || 0) - new Date(a.last_seen || 0);
+  });
 }
 
-// renderList paints an event list into host under a read scope, inserting the
-// "read below" divider at the first read event.
-function renderList(host, events, scope) {
-  const read = getTabRead(scope);
-  host.innerHTML = events.length ? '' : '<span class="muted">none</span>';
-  let barPlaced = false;
-  for (const e of events) {
-    if (!barPlaced && e.id <= read) { host.appendChild(readBar()); barPlaced = true; }
-    host.appendChild(renderEvent(e, scope));
-  }
-  if (events.length && !barPlaced) host.appendChild(readBar());
-}
-
-function renderEvents() { renderList($('events'), eventsForTab(currentTab), currentTab); }
-
-// applyRead moves a tab's cumulative read marker and repaints; also refreshes
-// the tab/group bars whose badges track per-tab reads.
-function applyRead(scope, id) {
-  setTabRead(scope, id);
-  renderEvents();
-  renderTabs();
-}
-
-// ---- unified event stream ----
-// A single firehose of every event across all workers, in arrival order
-// (newest first), independent of the current tab/group. Toggled into its own
-// column; never affects the per-tab queue. Events are acknowledged one at a
-// time (not a running marker), since the stream interleaves many workers.
-function loadAcked() { try { return new Set(JSON.parse(localStorage.getItem(ACKED_KEY)) || []); } catch { return new Set(); } }
-function saveAcked(s) { localStorage.setItem(ACKED_KEY, JSON.stringify([...s])); }
-function isAcked(id) { return loadAcked().has(id); }
-function ackEvent(id) { const s = loadAcked(); s.add(id); saveAcked(s); }
-function unackEvent(id) { const s = loadAcked(); s.delete(id); saveAcked(s); }
-// Drop acks for events that have since aged out of the store.
-function pruneAcked() {
-  const s = loadAcked(), ids = new Set(allEvents.map(e => e.id));
-  let changed = false;
-  for (const id of s) if (!ids.has(id)) { s.delete(id); changed = true; }
-  if (changed) saveAcked(s);
-}
-// One event per worker (newest first), like the per-tab queue — the global
-// stream is too noisy with every event. Keyless events stand on their own.
-// An event is "unread" if it sits above its tab's read marker (workers with no
-// tab belong to Home).
-function eventUnreadInTab(e) {
-  const k = keyOf(e.metadata);
-  return k ? e.id > getTabRead(getTabForWorker(k) || HOME) : false;
-}
-
-function streamDeduped() {
-  const seen = new Set(), out = [];
-  for (const e of [...allEvents].reverse()) {
-    // Show events that arrived since page load, plus anything still unread in
-    // its tab — so pre-existing unread work surfaces even on a fresh load.
-    if (e.id <= streamFloor && !eventUnreadInTab(e)) continue;
-    if (e.event_type === 'session_end') continue;  // worker is gone; not stream-worthy
-    const k = keyOf(e.metadata) || 'id:' + e.id;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(e);
-  }
-  return out;
-}
-function streamUnread() { const s = loadAcked(); return streamDeduped().filter(e => !s.has(e.id)).length; }
-
-function renderStream() {
-  if (!isStreamOpen()) return;
-  pruneAcked();
-  const acked = loadAcked();
-  const events = streamDeduped();  // newest per worker
-  const unacked = events.filter(e => !acked.has(e.id));
-  const done = events.filter(e => acked.has(e.id));
-  const host = $('stream-events');
-  host.innerHTML = '';
-  for (const e of unacked) host.appendChild(renderEvent(e, STREAM));
-  if (!unacked.length) {
-    const m = document.createElement('span'); m.className = 'muted';
-    m.textContent = 'nothing unacknowledged'; host.appendChild(m);
-  }
-  // Acknowledged events collapse into a fold below, retrievable but out of the way.
+// renderPaneList paints a pane list into host: unread panes on top, then an
+// "acknowledged" fold holding the rest, out of the way but still reachable.
+function renderPaneList(host, panes, scope) {
+  const evByKey = latestEventByKey();
+  const ordered = orderPanes(panes);
+  const unread = ordered.filter(p => p.unread), done = ordered.filter(p => !p.unread);
+  host.innerHTML = ordered.length ? '' : '<span class="muted">none</span>';
+  for (const p of unread) host.appendChild(renderCard(p, eventForPane(p, evByKey), scope));
   if (done.length) {
     const d = document.createElement('details'); d.className = 'ack-fold';
     d.innerHTML = `<summary>acknowledged (${done.length})</summary>`;
-    for (const e of done) d.appendChild(renderEvent(e, STREAM));
+    for (const p of done) d.appendChild(renderCard(p, eventForPane(p, evByKey), scope));
     host.appendChild(d);
   }
+}
+
+function renderEvents() { renderPaneList($('events'), panesForTab(currentTab), currentTab); }
+
+// setPaneUnread persists a pane's ack state to the server, then refreshes
+// every view that reads it (stream, its badge, the queue overlay, and the
+// tab view/bars) — this is what makes acking "global for the pane everywhere".
+async function setPaneUnread(key, unread) {
+  try {
+    await fetch('/api/panes/ack', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key, unread }),
+    });
+  } catch { toast('ack failed'); return; }
+  await loadPanes();
+  if (queueOpen) renderQueueModal('ack');
+}
+
+// setPaneTab persists a pane's tab assignment to the server. tab === HOME (or
+// empty) unassigns it.
+async function setPaneTab(key, tab) {
+  try {
+    await fetch('/api/panes/tab', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ key, tab: tab === HOME ? '' : tab }),
+    });
+  } catch { toast('tab assignment failed'); return; }
+  await loadPanes();
+}
+
+// ---- unified event stream ----
+// A single firehose of every pane's latest notification, independent of the
+// current tab/group. Toggled into its own column; shares the same panes (and
+// ack state) as the per-tab view and the queue overlay.
+function streamUnread() { return allPanes.filter(p => p.unread).length; }
+
+function renderStream() {
+  if (!isStreamOpen()) return;
+  renderPaneList($('stream-events'), allPanes, STREAM);
 }
 
 function isStreamOpen() { return localStorage.getItem(STREAM_OPEN_KEY) === '1'; }
@@ -883,61 +894,79 @@ function toggleStream() {
   applyStreamVisibility();
 }
 
-// Ack/un-ack affects the stream list, its badge, and (if open) the queue
-// overlay — all three read from the same acked set, so any change refreshes
-// all three rather than each caller doing it separately.
-function onAckChanged() {
-  renderStream();
-  updateStreamBtn();
-  if (queueOpen) renderQueueModal('ack');
-}
-
 // ---- unread queue overlay ----
-// A "cycle through one unread card at a time, looping back to the start"
-// view over the same working set as the stream (streamDeduped, unacked).
-// Acking a card removes it from the set — the same index then points at
-// what's now the next card, which is what gives the "circuit" feel; when
-// the set shrinks past the current index it wraps to the front.
-let queueOpen = false, queueIndex = 0;
+// A "cycle through one unread card at a time, looping back to the start" view
+// over the same unread panes as the stream. The displayed card is pinned by
+// the pane's key (queueCurrentKey), not by position — background refreshes
+// (SSE, the 15s poll) re-sort/re-filter the candidate list constantly, and a
+// new unread pane can sort to the top, but that must never yank the view away
+// from whatever the user is currently looking at. Only an explicit
+// next/prev/ack changes which pane is shown. If the current pane disappears
+// from the unread set some other way (e.g. acked from the tab view), it's
+// fine to fall forward to whatever is now first.
+let queueOpen = false, queueCurrentKey = null, queueRenderedKey = null;
 
-function queueCandidates() { const s = loadAcked(); return streamDeduped().filter(e => !s.has(e.id)); }
+function queueCandidates() { return orderPanes(allPanes.filter(p => p.unread)); }
 
 function openQueueModal() {
   queueOpen = true;
-  queueIndex = 0;
+  queueCurrentKey = null;
+  queueRenderedKey = null;
   $('queue-modal').hidden = false;
   renderQueueModal();
 }
 function closeQueueModal() {
   queueOpen = false;
+  queueRenderedKey = null;
   stopQueuePaneCapture();
   stopQueueNeighborPrefetch();
   $('queue-modal').hidden = true;
 }
 
+// ackQueueCard acks the currently-displayed card and picks what should show
+// next — computed from the list as it exists right now, before the mutation
+// — preserving the "circuit" feel (the next candidate in line, wrapping to
+// the front) instead of falling back to whatever the freshly re-sorted list
+// puts first.
+async function ackQueueCard(key, isRead) {
+  const panes = queueCandidates();
+  const idx = panes.findIndex(p => paneKey(p) === key);
+  const rest = panes.filter(p => paneKey(p) !== key);
+  queueCurrentKey = rest.length ? paneKey(rest[idx % rest.length]) : null;
+  await setPaneUnread(key, isRead);
+}
+
 // renderQueueModal rebuilds the current card. Pass 'next'/'prev'/'ack' to
 // play a small directional/fade transition around the swap; omit it (initial
-// open, background SSE refresh) to update instantly.
+// open, background SSE refresh) to update instantly — and, if the pinned
+// pane hasn't changed, to skip touching the DOM at all (no dir, same key),
+// so a background refresh never resets pane-capture scroll/selection.
 let queueAnimGen = 0;
 function renderQueueModal(dir = null) {
   const build = () => {
-    stopQueuePaneCapture();
-    const events = queueCandidates();
+    const panes = queueCandidates();
     const host = $('queue-card-host');
-    if (!events.length) {
-      stopQueueNeighborPrefetch();
+    if (!panes.length) {
+      queueCurrentKey = null;
+      if (queueRenderedKey !== null) { stopQueuePaneCapture(); stopQueueNeighborPrefetch(); }
+      queueRenderedKey = null;
       $('queue-pos').textContent = 'all caught up';
       host.innerHTML = '<span class="muted">nothing unacknowledged</span>';
       return;
     }
-    if (queueIndex >= events.length) queueIndex = 0;
-    $('queue-pos').textContent = `${queueIndex + 1} of ${events.length}`;
-    host.innerHTML = '';
-    const e = events[queueIndex];
-    host.appendChild(renderEvent(e, STREAM, { skipPaneButton: true }));
-    const paneId = ((e.metadata || {}).pane_loc || '').match(/%\d+/);
-    if (paneId) host.appendChild(buildInlinePane(paneId[0]));
-    startQueueNeighborPrefetch(neighborPaneIds(events, queueIndex));
+    let idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
+    if (idx < 0) { idx = 0; queueCurrentKey = paneKey(panes[0]); }
+    $('queue-pos').textContent = `${idx + 1} of ${panes.length}`;
+    const p = panes[idx];
+    if (dir || paneKey(p) !== queueRenderedKey) {
+      stopQueuePaneCapture();
+      host.innerHTML = '';
+      host.appendChild(renderCard(p, eventForPane(p, latestEventByKey()), STREAM, { skipPaneButton: true, onAck: ackQueueCard }));
+      const paneId = (p.pane_loc || '').match(/%\d+/);
+      if (paneId) host.appendChild(buildInlinePane(paneId[0]));
+      queueRenderedKey = paneKey(p);
+    }
+    startQueueNeighborPrefetch(neighborPaneIds(panes, idx));
   };
   if (!dir) { build(); return; }
   animateQueueSwap(build, dir);
@@ -973,18 +1002,22 @@ function animateQueueSwap(build, dir) {
 }
 
 function nextQueueCard() {
-  const n = queueCandidates().length;
-  if (n) queueIndex = (queueIndex + 1) % n;
+  const panes = queueCandidates();
+  if (!panes.length) return;
+  const idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
+  queueCurrentKey = paneKey(panes[(Math.max(idx, 0) + 1) % panes.length]);
   renderQueueModal('next');
 }
 function prevQueueCard() {
-  const n = queueCandidates().length;
-  if (n) queueIndex = (queueIndex - 1 + n) % n;
+  const panes = queueCandidates();
+  if (!panes.length) return;
+  const idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
+  queueCurrentKey = paneKey(panes[(Math.max(idx, 0) - 1 + panes.length) % panes.length]);
   renderQueueModal('prev');
 }
 
 // ---- queue overlay's inline pane (view + send keys, no second dialog) ----
-let queuePaneTimer = null, queuePaneId = null;
+let queuePaneTimer = null, queuePaneId = null, queuePaneLastText = null;
 // Captures for panes are cached by pane id so a card that was recently a
 // neighbor (or the previously-shown card) paints instantly from cache while
 // a fresh capture loads in the background, instead of showing "…" every swap.
@@ -996,6 +1029,8 @@ function buildInlinePane(paneId) {
   div.innerHTML = `
     <pre id="queue-pane-cap" class="pane-cap"></pre>
     <div class="pane-keys">
+      <label class="autorefresh"><input type="checkbox" id="queue-autorefresh" onchange="setAutoRefreshFromCheckbox(this.checked)"> auto-refresh</label>
+      <button onclick="refreshQueuePane(true)" title="refresh now">↻ refresh<span id="queue-refresh-dot" class="update-dot" hidden title="pane contents changed"></span></button>
       <button onclick="queuePaneSend({key:'Enter'})" title="Enter">⏎ Enter</button>
       <button onclick="queuePaneSend({key:'Escape'})">Esc</button>
       <button onclick="queuePaneSend({key:'Up'})">↑</button>
@@ -1007,6 +1042,7 @@ function buildInlinePane(paneId) {
              onkeydown="if (event.key==='Enter'){event.preventDefault(); queuePaneSendText(true);}">
       <button onclick="queuePaneSendText(false)">send</button>
     </div>`;
+  div.querySelector('#queue-autorefresh').checked = isAutoRefresh();
   div.querySelector('#queue-pane-cap').textContent = paneCache.get(paneId) ?? '…';
   startQueuePaneCapture(paneId);
   return div;
@@ -1014,11 +1050,11 @@ function buildInlinePane(paneId) {
 
 // The %N ids of the cards that next/prev would land on from `idx`, deduped
 // and excluding the current one, so their captures can be kept warm.
-function neighborPaneIds(events, idx) {
-  const n = events.length;
+function neighborPaneIds(panes, idx) {
+  const n = panes.length;
   if (n < 2) return [];
   const ids = [(idx + 1) % n, (idx - 1 + n) % n]
-    .map(i => ((events[i].metadata || {}).pane_loc || '').match(/%\d+/))
+    .map(i => (panes[i].pane_loc || '').match(/%\d+/))
     .filter(Boolean).map(m => m[0]);
   return [...new Set(ids)];
 }
@@ -1038,28 +1074,57 @@ async function prefetchPane(paneId) {
 
 function startQueuePaneCapture(paneId) {
   queuePaneId = paneId;
-  refreshQueuePane();
-  queuePaneTimer = setInterval(refreshQueuePane, 1500);
+  queuePaneLastText = paneCache.get(paneId) ?? null;
+  refreshQueuePane(true);
+  restartQueuePaneTimer();
+}
+// The poll runs regardless of the auto-refresh setting — see refreshPaneModal
+// for why: it flags a pending change (the dot) without forcing a repaint when
+// auto-refresh is off.
+function restartQueuePaneTimer() {
+  clearInterval(queuePaneTimer);
+  queuePaneTimer = setInterval(() => refreshQueuePane(false), 1500);
 }
 function stopQueuePaneCapture() {
   clearInterval(queuePaneTimer);
-  queuePaneTimer = null; queuePaneId = null;
+  queuePaneTimer = null; queuePaneId = null; queuePaneLastText = null;
 }
-async function refreshQueuePane() {
+async function refreshQueuePane(force = false) {
   if (!queuePaneId) return;
-  const pre = $('queue-pane-cap');
+  const pre = $('queue-pane-cap'), dot = $('queue-refresh-dot');
   if (!pre) return;
   try {
     const text = (await capturePane(queuePaneId)) || '(empty)';
-    paneCache.set(queuePaneId, text);
-    pre.textContent = text;
+    if (text === queuePaneLastText) { if (dot) dot.hidden = true; return; }
+    if (force || isAutoRefresh()) {
+      queuePaneLastText = text;
+      paneCache.set(queuePaneId, text);
+      pre.textContent = text;
+      if (dot) dot.hidden = true;
+    } else if (dot) {
+      dot.hidden = false;
+    }
   } catch (err) { pre.textContent = 'capture error'; }
+}
+
+// setAutoRefreshFromCheckbox is the one control point for the auto-refresh
+// setting (shared by the pane modal and the queue's inline pane, since both
+// checkboxes reflect and drive the same preference); it restarts whichever
+// polling timers are currently active and keeps both checkboxes in sync.
+function setAutoRefreshFromCheckbox(on) {
+  setAutoRefresh(on);
+  // Turning it on applies any pending change immediately rather than waiting
+  // for the next poll tick.
+  if (paneModal.id) { if (on) refreshPaneModal(true); }
+  if (queuePaneId) { if (on) refreshQueuePane(true); }
+  const a = $('pane-autorefresh'); if (a) a.checked = on;
+  const b = $('queue-autorefresh'); if (b) b.checked = on;
 }
 async function queuePaneSend(payload) {
   if (!queuePaneId) return;
   try { await sendPaneKeys({ pane: queuePaneId, ...payload }); }
   catch (err) { toast('send failed: ' + err.message); return; }
-  setTimeout(refreshQueuePane, 120);
+  setTimeout(() => refreshQueuePane(true), 120);
 }
 async function queuePaneSendText(submit) {
   const input = $('queue-pane-input');
@@ -1073,12 +1138,13 @@ async function queuePaneSendText(submit) {
 let closeMovePopup = () => {};
 function promptMove(type, id, anchor) {
   closeMovePopup();
-  const current = type === 'file' ? getTabForFile(id) : getTabForWorker(id);
+  const current = type === 'file' ? getTabForFile(id) : getTabForPane(id);
 
-  function doMove(target) {
-    assignToTab(target, type, id);
+  async function doMove(target) {
+    if (type === 'file') assignFileToTab(target, id);
+    else await setPaneTab(id, target);
     closeMovePopup();
-    if (currentTab !== HOME && !loadTabState()[currentTab]) currentTab = HOME;
+    if (currentTab !== HOME && !allTabNames().includes(currentTab)) currentTab = HOME;
     renderAll();
   }
 
@@ -1231,38 +1297,23 @@ function showPopup(pop, anchor) {
 }
 
 // ---- data fetches ----
-let homeSeeded = false;
-function seedHomeRead(serverLastRead) {
-  if (homeSeeded) return;
-  homeSeeded = true;
-  const reads = loadReads();
-  if (reads[HOME] === undefined) { reads[HOME] = serverLastRead; saveReads(reads); }
-}
-
-// The stream only shows events that arrive after the page loads: on first load
-// we record the newest id as a floor and ignore anything at or below it, so a
-// refresh starts empty and fills only with new activity.
-function initStreamFloor() {
-  if (streamFloor !== null) return;
-  streamFloor = allEvents.reduce((m, e) => Math.max(m, e.id), 0);
-}
-
+// allEvents supplies rendering content (title/description/raw metadata) for
+// the latest notification per pane; ack/tab/unread state lives on the panes
+// themselves (loadPanes), which is what every view actually orders/folds by.
 async function loadEvents() {
-  let data;
-  try { data = await fetch('/api/events').then(r => r.json()); } catch { return; }
-  allEvents = data.events || [];
-  initStreamFloor();
-  seedHomeRead(data.last_read || 0);
+  try { allEvents = await fetch('/api/events').then(r => r.json()) || []; } catch { return; }
+  renderEvents();
+  renderStream();
+  if (queueOpen) renderQueueModal();
+}
+async function loadPanes() {
+  try { allPanes = await fetch('/api/panes').then(r => r.json()) || []; } catch { return; }
+  renderWorkers();
   renderEvents();
   renderStream();
   updateStreamBtn();
   renderTabs();
   if (queueOpen) renderQueueModal();
-}
-async function loadWorkers() {
-  try { allWorkers = await fetch('/api/workers').then(r => r.json()) || []; } catch { return; }
-  renderWorkers();
-  renderTabs();
 }
 
 // ---- tmux pane tunnelling ----
@@ -1277,12 +1328,9 @@ async function sendPaneKeys(payload) {
   if (!r.ok) throw new Error(await r.text());
 }
 
-async function gotoPane(target, eventId, scope = currentTab) {
+async function gotoPane(target) {
   const r = await fetch('/api/goto', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ target }) });
   toast(r.ok ? 'switched to ' + target : 'goto failed: ' + await r.text());
-  // In a tab queue, jumping to the pane advances the read marker; the stream
-  // leaves acknowledgment explicit (like focus).
-  if (r.ok && eventId && scope !== STREAM && eventId > getTabRead(scope)) applyRead(scope, eventId);
 }
 
 // ---- live updates ----
@@ -1302,7 +1350,7 @@ function connect() {
   const es = new EventSource('/api/stream');
   es.onopen = () => {
     $('conn').textContent = 'live';
-    loadEvents(); loadWorkers();  // resync anything missed while disconnected
+    loadEvents(); loadPanes();  // resync anything missed while disconnected
   };
   es.onerror = () => {
     $('conn').textContent = 'disconnected';
@@ -1313,7 +1361,7 @@ function connect() {
   };
   es.onmessage = msg => {
     const e = JSON.parse(msg.data);
-    loadEvents(); loadWorkers();
+    loadEvents(); loadPanes();
     toast(`${e.event_type}: ${e.title || ''}`);
     if ('Notification' in window && Notification.permission === 'granted')
       new Notification(e.title || e.event_type, { body: e.description || e.event_type });
@@ -1328,10 +1376,11 @@ connect();
 // handshake; the stream then keeps it live.
 loadFiles();
 loadEvents();
-loadWorkers();
-// Periodic tick: refresh task files (replaces the old explicit refresh) and
-// re-tick tab indicators (unread counts + elapsed-time labels).
-setInterval(() => { renderTabs(); loadFiles(); }, 15000);
+loadPanes();
+// Periodic tick: refresh task files and pane state (picks up ack/tab changes
+// made from another browser/tab, which aren't pushed over SSE) and re-tick
+// tab indicators (unread counts + elapsed-time labels).
+setInterval(() => { renderTabs(); loadFiles(); loadPanes(); }, 15000);
 // Escape closes whichever modal is on top (pane modal can open from within
 // the queue overlay, so it takes priority).
 document.addEventListener('keydown', e => {
