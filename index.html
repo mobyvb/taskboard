@@ -1030,22 +1030,34 @@ function toggleStream() {
 // from the unread set some other way (e.g. acked from the tab view), it's
 // fine to fall forward to whatever is now first.
 let queueOpen = false, queueCurrentKey = null, queueRenderedKey = null;
-// Panes viewed since the queue opened (or since "start over"). "Next" walks
+// Panes viewed since the queue opened (or since "start over"), keyed by pane
+// key -> the pane's last_seen at the moment it was marked seen. "Next" walks
 // through the unseen ones; once they're all seen it stops at an end-of-deck
 // page rather than silently looping, so you can tell you've been through
 // everything. Acking is separate — it removes the pane outright.
-let queueSeen = new Set(), queueDeckDone = false;
+//
+// Storing the timestamp (not just membership) lets a pane un-see itself: if
+// it notifies again after being marked seen, its last_seen moves past the
+// recorded value, so queueIsSeen treats it as fresh again -- it resurfaces
+// through Next/ack instead of staying stuck "already handled" until an
+// explicit start-over.
+let queueSeen = new Map(), queueDeckDone = false;
 // Sentinels for queueRenderedKey so the empty / end-of-deck pages aren't
 // needlessly rebuilt on every quiet background refresh.
-const Q_EMPTY = ' empty', Q_DONE = ' done';
+const Q_EMPTY = ' empty', Q_DONE = ' done';
 
 function queueCandidates() { return orderPanes(allPanes.filter(p => p.unread)); }
+function queueMarkSeen(p) { queueSeen.set(paneKey(p), new Date(p.last_seen || 0)); }
+function queueIsSeen(p) {
+  const seenAt = queueSeen.get(paneKey(p));
+  return seenAt !== undefined && new Date(p.last_seen || 0) <= seenAt;
+}
 
 function openQueueModal() {
   queueOpen = true;
   queueCurrentKey = null;
   queueRenderedKey = null;
-  queueSeen = new Set();
+  queueSeen = new Map();
   queueDeckDone = false;
   queueAnimGen++;  // invalidate any pending swap timeout from a previous session
   queueSwapPending = false;
@@ -1066,7 +1078,7 @@ function closeQueueModal() {
 function startOverQueue() {
   const panes = queueCandidates();
   if (!panes.length) return;
-  queueSeen = new Set();
+  queueSeen = new Map();
   queueDeckDone = false;
   queueCurrentKey = paneKey(panes[0]);
   animateQueueSwap('next');
@@ -1074,9 +1086,13 @@ function startOverQueue() {
 
 // ackCurrentQueueCard/ackQueueCard ack the currently-displayed card and pick
 // what should show next — computed from the list as it exists right now,
-// before the mutation — preserving the "circuit" feel (the next candidate in
-// line, wrapping to the front) instead of falling back to whatever the
-// freshly re-sorted list puts first.
+// before the mutation. Prefers the most-recently-notified not-yet-seen pane
+// (rest is already sorted that way by queueCandidates), so one that
+// re-notified while we were elsewhere in the deck comes up now instead of
+// being skipped as "already handled" — falling back to the old
+// fixed-rotation pick (the next candidate in line, wrapping to the front)
+// once nothing fresh is left, so a fully-reviewed deck still cycles
+// predictably.
 function ackCurrentQueueCard() {
   if (queueCurrentKey && !queueDeckDone) ackQueueCard(queueCurrentKey, false);
 }
@@ -1084,7 +1100,8 @@ async function ackQueueCard(key, isRead) {
   const panes = queueCandidates();
   const idx = panes.findIndex(p => paneKey(p) === key);
   const rest = panes.filter(p => paneKey(p) !== key);
-  queueCurrentKey = rest.length ? paneKey(rest[idx % rest.length]) : null;
+  const fresh = rest.find(p => !queueIsSeen(p));
+  queueCurrentKey = fresh ? paneKey(fresh) : (rest.length ? paneKey(rest[idx % rest.length]) : null);
   animateQueueSwap('ack');
   await setPaneUnread(key, isRead);
 }
@@ -1131,24 +1148,33 @@ function buildQueueCard() {
   }
 
   if (queueDeckDone) {
-    setControls(false);
-    $('queue-pos').textContent = `${panes.length} still unread`;
-    if (queueRenderedKey !== Q_DONE) {
-      stopQueuePaneCapture(); stopQueueNeighborPrefetch();
-      host.innerHTML = `<div class="queue-empty">
-        <div class="qe-check qe-check-review">↻</div>
-        <h2>Reviewed them all</h2>
-        <p>${panes.length} pane${panes.length === 1 ? '' : 's'} still unacknowledged. Start over to go through them again.</p>
-        <button class="qa-next" onclick="startOverQueue()">Start over</button>
-      </div>`;
-      queueRenderedKey = Q_DONE;
+    // A pane re-notifying while parked on this page just became relevant
+    // again — break out automatically instead of making the user click
+    // "start over" and re-walk everything they already handled.
+    const fresh = panes.find(p => !queueIsSeen(p));
+    if (fresh) {
+      queueDeckDone = false;
+      queueCurrentKey = paneKey(fresh);
+    } else {
+      setControls(false);
+      $('queue-pos').textContent = `${panes.length} still unread`;
+      if (queueRenderedKey !== Q_DONE) {
+        stopQueuePaneCapture(); stopQueueNeighborPrefetch();
+        host.innerHTML = `<div class="queue-empty">
+          <div class="qe-check qe-check-review">↻</div>
+          <h2>Reviewed them all</h2>
+          <p>${panes.length} pane${panes.length === 1 ? '' : 's'} still unacknowledged. Start over to go through them again.</p>
+          <button class="qa-next" onclick="startOverQueue()">Start over</button>
+        </div>`;
+        queueRenderedKey = Q_DONE;
+      }
+      return;
     }
-    return;
   }
 
   let idx = panes.findIndex(p => paneKey(p) === queueCurrentKey);
   if (idx < 0) { idx = 0; queueCurrentKey = paneKey(panes[0]); }
-  queueSeen.add(paneKey(panes[idx]));
+  queueMarkSeen(panes[idx]);
   setControls(true);
   $('queue-pos').textContent = `${idx + 1} of ${panes.length}`;
   const p = panes[idx];
@@ -1193,17 +1219,17 @@ function animateQueueSwap(dir) {
   }, 280);
 }
 
-// Skips the current card without acking it — it stays unread. Walks to the
-// next pane not yet seen this cycle; when there are none left, lands on the
-// end-of-deck page instead of looping straight back to the top.
+// Skips the current card without acking it — it stays unread. Jumps to the
+// most-recently-notified pane not yet seen this cycle (queueCandidates is
+// already sorted that way), rather than walking forward from the current
+// position — so a pane that just re-notified always comes up next,
+// regardless of where it sits relative to where we are in the deck. When
+// none are left, lands on the end-of-deck page instead of looping back.
 function nextQueueCard() {
   const panes = queueCandidates();
   if (!panes.length || queueDeckDone) return;
-  const idx = Math.max(0, panes.findIndex(p => paneKey(p) === queueCurrentKey));
-  for (let i = 1; i <= panes.length; i++) {
-    const cand = panes[(idx + i) % panes.length];
-    if (!queueSeen.has(paneKey(cand))) { queueCurrentKey = paneKey(cand); animateQueueSwap('next'); return; }
-  }
+  const cand = panes.find(p => !queueIsSeen(p));
+  if (cand) { queueCurrentKey = paneKey(cand); animateQueueSwap('next'); return; }
   queueDeckDone = true;
   animateQueueSwap('next');
 }
@@ -1213,7 +1239,7 @@ function nextQueueCard() {
 async function unackAllPanes() {
   try { await fetch('/api/panes/unack-all', { method: 'POST' }); }
   catch { toast('reset failed'); return; }
-  queueSeen = new Set();
+  queueSeen = new Map();
   queueDeckDone = false;
   queueCurrentKey = null;
   await loadPanes();
