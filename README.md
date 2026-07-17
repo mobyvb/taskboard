@@ -101,3 +101,20 @@ Add to `~/.claude/settings.json` (replace `/path/to/taskboard` with your clone l
 Note: `PANE_LOC` is per-shell. With the [Shell setup](#shell-setup) snippet it is
 exported automatically; otherwise the hook falls back to `scripts/get-pane-location`
 (resolved next to `claude-hook.sh`, or via `TASKBOARD_SCRIPTS_PATH` if set).
+
+## Broadcasting a pane manually
+
+`scripts/broadcast-pane` posts a one-off event for the current tmux pane, so
+it shows up in the UI like a claude worker would -- but with no claude
+session attached. Useful for tracking a pane that isn't running claude at
+all (e.g. a long build, a plain shell you want a "goto" button for).
+
+```sh
+scripts/broadcast-pane                                   # defaults: port 8723, title = cwd basename
+scripts/broadcast-pane -p 8724 -t "build" -d "watching CI"
+```
+
+Flags: `-p/--port` (default `8723`; an explicit `-p` always wins, otherwise
+falls back to `$TASKBOARD_URL` if set, same as `claude-hook.sh`), `-t/--title`,
+`-d/--desc`, `-e/--type` (default `broadcast`). Pane location resolution is
+the same as `claude-hook.sh`'s.
