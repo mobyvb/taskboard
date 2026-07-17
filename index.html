@@ -64,8 +64,27 @@
   .event details.raw { background: none; border: none; border-radius: 0; margin: 5px 0 0; }
   .event details.raw > summary { padding: 0; color: #717c8d; font-size: 11px; }
   .event details.raw pre { border: none; padding: 4px 0 0; }
-  /* pane modal (own layer, above the columns) */
-  #pane-modal { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  /* queue modal (own layer, below the pane modal so "pane" from within a
+     queue card can stack on top of it) */
+  #queue-modal { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #queue-modal[hidden] { display: none; }
+  /* Fixed height (not max-height): cards vary in content length, and if the
+     dialog resized to fit each one the whole thing would recenter (it sits
+     in a centered flex overlay) — that's what read as "buttons moving
+     around" between cards. A constant-size dialog with an internal scroll
+     region keeps the header and its controls perfectly still. */
+  .queue-dialog { display: flex; flex-direction: column; gap: 10px; width: min(560px, 95vw); height: min(600px, 88vh); background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .queue-head { display: flex; align-items: center; gap: 10px; flex: none; }
+  .queue-head strong { font-size: 14px; }
+  .queue-pos { flex: 1; font-size: 11px; color: #8b95a5; }
+  .queue-card-host { flex: 1; overflow: auto; min-height: 0; }
+  /* Transition only applies while .q-anim is present; toggled by JS around a
+     forced reflow so the same rule reliably re-triggers on every swap. */
+  .queue-card-host.q-anim { transition: opacity .16s ease, transform .16s ease; }
+  .queue-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .queue-pane .pane-cap { max-height: 240px; }
+  /* pane modal (own layer, above the columns and above the queue modal) */
+  #pane-modal { position: fixed; inset: 0; z-index: 31; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #pane-modal[hidden] { display: none; }
   .pane-dialog { display: flex; flex-direction: column; gap: 10px; width: min(1000px, 95vw); max-height: 90vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
   .pane-dialog-head { display: flex; align-items: center; gap: 10px; }
@@ -95,6 +114,7 @@
     <h1>taskboard</h1>
     <span id="conn" class="muted">connecting…</span>
     <button id="stream-btn" onclick="toggleStream()">stream</button>
+    <button id="queue-btn" onclick="openQueueModal()">queue</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
   </header>
   <nav id="groupbar"></nav>
@@ -116,6 +136,18 @@
     <div id="stream-events" class="muted">none</div>
   </section>
 </main>
+<div id="queue-modal" hidden onclick="if (event.target === this) closeQueueModal()">
+  <div class="queue-dialog">
+    <div class="queue-head">
+      <strong>unread queue</strong>
+      <span id="queue-pos" class="queue-pos"></span>
+      <button onclick="prevQueueCard()" title="previous (wraps around)">‹ prev</button>
+      <button onclick="nextQueueCard()" title="skip — leave unread, next (wraps around)">next ›</button>
+      <button onclick="closeQueueModal()">close</button>
+    </div>
+    <div id="queue-card-host" class="queue-card-host"></div>
+  </div>
+</div>
 <div id="pane-modal" hidden onclick="if (event.target === this) closePaneModal()">
   <div class="pane-dialog">
     <div class="pane-dialog-head">
@@ -623,7 +655,7 @@ function eventChips(e, includeTab) {
   return chips;
 }
 
-function renderEvent(e, scope) {
+function renderEvent(e, scope, opts = {}) {
   const isRead = isEventRead(e, scope);
   const div = document.createElement('div');
   div.className = 'event' + (isRead ? ' read' : '');
@@ -652,12 +684,14 @@ function renderEvent(e, scope) {
   };
   const paneId = (pl.match(/%\d+/) || [])[0];
   if (pl) add('goto', `switch tmux to ${pl}`, () => gotoPane(pl, e.id, scope));
-  if (paneId) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, e));
+  // The queue overlay shows the pane inline instead (see renderQueueModal),
+  // so it skips this button rather than opening a redundant second dialog.
+  if (paneId && !opts.skipPaneButton) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, e));
   if (scope === STREAM) {
     // Acknowledge this one event (move it below the fold), independent of others.
     add(isRead ? 'un-ack' : 'ack',
         isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
-        () => { isRead ? unackEvent(e.id) : ackEvent(e.id); renderStream(); updateStreamBtn(); });
+        () => { isRead ? unackEvent(e.id) : ackEvent(e.id); onAckChanged(); });
   } else {
     add(isRead ? 'unread' : 'mark read',
         isRead ? 'mark this and newer events unread' : 'mark this and older events read',
@@ -841,11 +875,198 @@ function applyStreamVisibility() {
 function updateStreamBtn() {
   const u = streamUnread();
   $('stream-btn').textContent = (isStreamOpen() ? 'hide stream' : 'stream') + (u ? ` (${u})` : '');
+  $('queue-btn').textContent = 'queue' + (u ? ` (${u})` : '');
 }
 
 function toggleStream() {
   localStorage.setItem(STREAM_OPEN_KEY, isStreamOpen() ? '0' : '1');
   applyStreamVisibility();
+}
+
+// Ack/un-ack affects the stream list, its badge, and (if open) the queue
+// overlay — all three read from the same acked set, so any change refreshes
+// all three rather than each caller doing it separately.
+function onAckChanged() {
+  renderStream();
+  updateStreamBtn();
+  if (queueOpen) renderQueueModal('ack');
+}
+
+// ---- unread queue overlay ----
+// A "cycle through one unread card at a time, looping back to the start"
+// view over the same working set as the stream (streamDeduped, unacked).
+// Acking a card removes it from the set — the same index then points at
+// what's now the next card, which is what gives the "circuit" feel; when
+// the set shrinks past the current index it wraps to the front.
+let queueOpen = false, queueIndex = 0;
+
+function queueCandidates() { const s = loadAcked(); return streamDeduped().filter(e => !s.has(e.id)); }
+
+function openQueueModal() {
+  queueOpen = true;
+  queueIndex = 0;
+  $('queue-modal').hidden = false;
+  renderQueueModal();
+}
+function closeQueueModal() {
+  queueOpen = false;
+  stopQueuePaneCapture();
+  stopQueueNeighborPrefetch();
+  $('queue-modal').hidden = true;
+}
+
+// renderQueueModal rebuilds the current card. Pass 'next'/'prev'/'ack' to
+// play a small directional/fade transition around the swap; omit it (initial
+// open, background SSE refresh) to update instantly.
+let queueAnimGen = 0;
+function renderQueueModal(dir = null) {
+  const build = () => {
+    stopQueuePaneCapture();
+    const events = queueCandidates();
+    const host = $('queue-card-host');
+    if (!events.length) {
+      stopQueueNeighborPrefetch();
+      $('queue-pos').textContent = 'all caught up';
+      host.innerHTML = '<span class="muted">nothing unacknowledged</span>';
+      return;
+    }
+    if (queueIndex >= events.length) queueIndex = 0;
+    $('queue-pos').textContent = `${queueIndex + 1} of ${events.length}`;
+    host.innerHTML = '';
+    const e = events[queueIndex];
+    host.appendChild(renderEvent(e, STREAM, { skipPaneButton: true }));
+    const paneId = ((e.metadata || {}).pane_loc || '').match(/%\d+/);
+    if (paneId) host.appendChild(buildInlinePane(paneId[0]));
+    startQueueNeighborPrefetch(neighborPaneIds(events, queueIndex));
+  };
+  if (!dir) { build(); return; }
+  animateQueueSwap(build, dir);
+}
+
+// Slide the outgoing card away (direction-aware for next/prev, a plain
+// scale-fade for ack) then swap content and ease the new card back in.
+// Toggling the .q-anim class (rather than setting inline transition strings)
+// plus a forced reflow between "jump to start state" and "animate to end
+// state" is what makes the same transition reliably re-fire on every swap —
+// relying on requestAnimationFrame timing there was the source of the
+// jumpiness. A generation counter drops stale timeouts if the user pages
+// through faster than the animation.
+function animateQueueSwap(build, dir) {
+  const host = $('queue-card-host');
+  const gen = ++queueAnimGen;
+  const out = dir === 'prev' ? 'translateX(14px)' : dir === 'next' ? 'translateX(-14px)' : 'scale(.97)';
+  const into = dir === 'prev' ? 'translateX(-14px)' : dir === 'next' ? 'translateX(14px)' : 'scale(.97)';
+  host.classList.add('q-anim');
+  host.style.opacity = '0';
+  host.style.transform = out;
+  setTimeout(() => {
+    if (gen !== queueAnimGen) return;  // superseded by a newer swap
+    build();
+    host.classList.remove('q-anim');  // jump to the entry pose with no transition...
+    host.style.opacity = '0';
+    host.style.transform = into;
+    host.offsetHeight;  // ...force a reflow so the browser commits that pose...
+    host.classList.add('q-anim');     // ...before re-enabling the transition and animating in
+    host.style.opacity = '1';
+    host.style.transform = 'translateX(0)';
+  }, 130);
+}
+
+function nextQueueCard() {
+  const n = queueCandidates().length;
+  if (n) queueIndex = (queueIndex + 1) % n;
+  renderQueueModal('next');
+}
+function prevQueueCard() {
+  const n = queueCandidates().length;
+  if (n) queueIndex = (queueIndex - 1 + n) % n;
+  renderQueueModal('prev');
+}
+
+// ---- queue overlay's inline pane (view + send keys, no second dialog) ----
+let queuePaneTimer = null, queuePaneId = null;
+// Captures for panes are cached by pane id so a card that was recently a
+// neighbor (or the previously-shown card) paints instantly from cache while
+// a fresh capture loads in the background, instead of showing "…" every swap.
+const paneCache = new Map();
+
+function buildInlinePane(paneId) {
+  const div = document.createElement('div');
+  div.className = 'queue-pane';
+  div.innerHTML = `
+    <pre id="queue-pane-cap" class="pane-cap"></pre>
+    <div class="pane-keys">
+      <button onclick="queuePaneSend({key:'Enter'})" title="Enter">⏎ Enter</button>
+      <button onclick="queuePaneSend({key:'Escape'})">Esc</button>
+      <button onclick="queuePaneSend({key:'Up'})">↑</button>
+      <button onclick="queuePaneSend({key:'Down'})">↓</button>
+      <button onclick="queuePaneSend({key:'C-c'})">Ctrl-C</button>
+    </div>
+    <div class="send-row">
+      <input id="queue-pane-input" placeholder="type text — Enter to run, or 'send' to type without running"
+             onkeydown="if (event.key==='Enter'){event.preventDefault(); queuePaneSendText(true);}">
+      <button onclick="queuePaneSendText(false)">send</button>
+    </div>`;
+  div.querySelector('#queue-pane-cap').textContent = paneCache.get(paneId) ?? '…';
+  startQueuePaneCapture(paneId);
+  return div;
+}
+
+// The %N ids of the cards that next/prev would land on from `idx`, deduped
+// and excluding the current one, so their captures can be kept warm.
+function neighborPaneIds(events, idx) {
+  const n = events.length;
+  if (n < 2) return [];
+  const ids = [(idx + 1) % n, (idx - 1 + n) % n]
+    .map(i => ((events[i].metadata || {}).pane_loc || '').match(/%\d+/))
+    .filter(Boolean).map(m => m[0]);
+  return [...new Set(ids)];
+}
+
+let queueNeighborTimer = null;
+function startQueueNeighborPrefetch(paneIds) {
+  stopQueueNeighborPrefetch();
+  if (!paneIds.length) return;
+  const tick = () => paneIds.forEach(prefetchPane);
+  tick();
+  queueNeighborTimer = setInterval(tick, 1500);
+}
+function stopQueueNeighborPrefetch() { clearInterval(queueNeighborTimer); queueNeighborTimer = null; }
+async function prefetchPane(paneId) {
+  try { paneCache.set(paneId, (await capturePane(paneId)) || '(empty)'); } catch { /* keep last-known content */ }
+}
+
+function startQueuePaneCapture(paneId) {
+  queuePaneId = paneId;
+  refreshQueuePane();
+  queuePaneTimer = setInterval(refreshQueuePane, 1500);
+}
+function stopQueuePaneCapture() {
+  clearInterval(queuePaneTimer);
+  queuePaneTimer = null; queuePaneId = null;
+}
+async function refreshQueuePane() {
+  if (!queuePaneId) return;
+  const pre = $('queue-pane-cap');
+  if (!pre) return;
+  try {
+    const text = (await capturePane(queuePaneId)) || '(empty)';
+    paneCache.set(queuePaneId, text);
+    pre.textContent = text;
+  } catch (err) { pre.textContent = 'capture error'; }
+}
+async function queuePaneSend(payload) {
+  if (!queuePaneId) return;
+  try { await sendPaneKeys({ pane: queuePaneId, ...payload }); }
+  catch (err) { toast('send failed: ' + err.message); return; }
+  setTimeout(refreshQueuePane, 120);
+}
+async function queuePaneSendText(submit) {
+  const input = $('queue-pane-input');
+  const text = input.value;
+  if (text) await queuePaneSend({ text });
+  if (submit) await queuePaneSend({ key: 'Enter' });
+  input.value = ''; input.focus();
 }
 
 // ---- move popup ----
@@ -1036,6 +1257,7 @@ async function loadEvents() {
   renderStream();
   updateStreamBtn();
   renderTabs();
+  if (queueOpen) renderQueueModal();
 }
 async function loadWorkers() {
   try { allWorkers = await fetch('/api/workers').then(r => r.json()) || []; } catch { return; }
@@ -1110,8 +1332,13 @@ loadWorkers();
 // Periodic tick: refresh task files (replaces the old explicit refresh) and
 // re-tick tab indicators (unread counts + elapsed-time labels).
 setInterval(() => { renderTabs(); loadFiles(); }, 15000);
-// Escape closes the pane modal.
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('pane-modal').hidden) closePaneModal(); });
+// Escape closes whichever modal is on top (pane modal can open from within
+// the queue overlay, so it takes priority).
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!$('pane-modal').hidden) closePaneModal();
+  else if (!$('queue-modal').hidden) closeQueueModal();
+});
 </script>
 </body>
 </html>
