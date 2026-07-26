@@ -609,7 +609,9 @@ func main() {
 			http.Error(w, "pane must match %N", http.StatusBadRequest)
 			return
 		}
-		args := []string{"capture-pane", "-t", in.Pane, "-p"}
+		// -J rejoins terminal-wrapped lines using tmux's wrapped-row flag,
+		// so a pane resize doesn't leave stale mid-line breaks from the old width.
+		args := []string{"capture-pane", "-t", in.Pane, "-p", "-J"}
 		if in.Lines > 0 {
 			if in.Lines > maxCaptureLines {
 				in.Lines = maxCaptureLines

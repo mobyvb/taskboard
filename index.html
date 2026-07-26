@@ -628,10 +628,17 @@ async function closeTab(name) {
 function renderAll() { renderTabs(); renderFiles(); renderWorkers(); renderEvents(); }
 
 // ---- files ----
-const urlRe = /https?:\/\/[^\s<>"&]+/g;
+const urlRe = /(?:https?|vscode):\/\/[^\s<>"&]+/g;
+// Trailing punctuation that's almost always prose (a sentence-ending period,
+// a closing paren wrapping the URL) rather than part of the URL itself.
+const trailingPunctRe = /[.,;:!?)\]}'"]+$/;
 function renderContent(text) {
   return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-    .replace(urlRe, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+    .replace(urlRe, u => {
+      const trailing = u.match(trailingPunctRe)?.[0] || '';
+      const url = trailing ? u.slice(0, -trailing.length) : u;
+      return url ? `<a href="${url}" target="_blank" rel="noopener">${url}</a>${trailing}` : u;
+    });
 }
 async function fetchFileContent(encPath) {
   const r = await fetch('/api/file?path=' + encPath);
@@ -1316,7 +1323,7 @@ function buildInlinePane(paneId) {
       <button onclick="queuePaneSendText(false)">send</button>
     </div>`;
   div.querySelector('#queue-autorefresh').checked = isAutoRefresh();
-  div.querySelector('#queue-pane-cap').textContent = paneCache.get(paneId) ?? '…';
+  div.querySelector('#queue-pane-cap').innerHTML = renderContent(paneCache.get(paneId) ?? '…');
   // Caller starts the capture loop after appending this to the document (see
   // buildQueueCard) so the first refresh can find #queue-pane-cap.
   return div;
@@ -1619,7 +1626,7 @@ function applyPaneText(pre, text, forceBottom) {
   if (!pre) return;
   const atBottom = forceBottom || (pre.scrollHeight - pre.scrollTop - pre.clientHeight < 8);
   const prevTop = pre.scrollTop;
-  pre.textContent = text;
+  pre.innerHTML = renderContent(text);
   pre.scrollTop = atBottom ? pre.scrollHeight : prevTop;
 }
 // payload is {pane, text} for literal text or {pane, key} for a named key.
