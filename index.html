@@ -38,6 +38,13 @@
   .tab-loc.auto { color: #4a7d92; }
   .group { display: inline-flex; align-items: center; gap: 6px; }
   .group.active { background: #4a3a6b; border-color: #5a4a82; }
+  .tab-tag { color: #6b7280; padding: 0 3px; border-radius: 3px; line-height: 1; }
+  .tab-tag:hover { background: #3c424e; color: #fff; }
+  .tab-tag.tagged { color: #7fbf7f; }
+  .tag-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .tag-chip { border-radius: 12px; }
+  .tag-chip.active { background: #2d6b4a; border-color: #3a825a; color: #d3f7e3; }
+  .tag-chip-clear { color: #8b95a5; }
   details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
   summary { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
   summary code { flex: 1; }
@@ -177,6 +184,7 @@
   </section>
   <section id="stream-col" hidden>
     <h2>Event stream <span class="muted" style="text-transform:none;letter-spacing:0">(all events, arrival order)</span></h2>
+    <div id="stream-tagfilter" class="tag-filter-bar" hidden></div>
     <div id="stream-events" class="muted">none</div>
   </section>
 </main>
@@ -190,6 +198,7 @@
       <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
       <button onclick="closeQueueModal()">close</button>
     </div>
+    <div id="queue-tagfilter" class="tag-filter-bar" hidden></div>
     <div id="queue-card-host" class="queue-card-host"></div>
     <div class="queue-actions">
       <button id="queue-ack-btn" class="qa-ack" onclick="ackCurrentQueueCard()" title="acknowledge (a) — card slides off the top">✓ Ack <kbd>a</kbd></button>
@@ -303,6 +312,10 @@ const GROUPS_KEY = 'taskboard_tab_groups', ALL = '__all__';
 // Optional tmux "goto" location per tab (a goto target, name-@N-%N).
 const LOCS_KEY = 'taskboard_tab_locs';
 const gotoTargetRe = /^[A-Za-z0-9._-]*@[0-9]+-%[0-9]+$/;
+// Free-form tags per tab (panes inherit their tab's tags for filtering).
+const TAGS_KEY = 'taskboard_tab_tags';
+// Active tag filter (OR'd) shared by the stream and the queue overlay.
+const TAG_FILTER_KEY = 'taskboard_tag_filter';
 // The unified event stream is its own view of the same panes, independent of
 // the current tab/group.
 const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
@@ -365,6 +378,31 @@ function pruneLocs() {
   let changed = false;
   for (const name of Object.keys(l)) if (!names.has(name)) { delete l[name]; changed = true; }
   if (changed) saveLocs(l);
+}
+
+// Per-tab tags (free-form, multiple per tab). Panes inherit their tab's tags
+// for filtering purposes — there is no separate per-pane override.
+function loadTags() { try { return JSON.parse(localStorage.getItem(TAGS_KEY)) || {}; } catch { return {}; } }
+function saveTags(t) { localStorage.setItem(TAGS_KEY, JSON.stringify(t)); }
+function getTabTags(name) { return loadTags()[name] || []; }
+function setTabTags(name, tags) {
+  const t = loadTags();
+  const cleaned = [...new Set(tags.map(s => s.trim()).filter(Boolean))];
+  if (cleaned.length) t[name] = cleaned; else delete t[name];
+  saveTags(t);
+}
+// The set of every tag currently in use across all tabs, for the filter UI.
+function allTagNames() {
+  const s = new Set();
+  for (const tags of Object.values(loadTags())) for (const tg of tags) s.add(tg);
+  return [...s].sort();
+}
+// Drop tags for tabs that no longer exist.
+function pruneTags() {
+  const names = new Set(allTabNames()), t = loadTags();
+  let changed = false;
+  for (const name of Object.keys(t)) if (!names.has(name)) { delete t[name]; changed = true; }
+  if (changed) saveTags(t);
 }
 
 // pruneGroups drops references to tabs that no longer exist and any group left
@@ -435,6 +473,31 @@ function paneByKey(key) { return allPanes.find(p => paneKey(p) === key) || null;
 
 function filesForTab(tabName) { return allFiles.filter(f => tabFilter(tabName, 'file', f.path)); }
 function panesForTab(tabName) { return allPanes.filter(p => tabFilter(tabName, 'pane', paneKey(p))); }
+
+// ---- tag filter (shared by the stream and the queue overlay) ----
+function loadTagFilter() { try { return JSON.parse(localStorage.getItem(TAG_FILTER_KEY)) || []; } catch { return []; } }
+function saveTagFilter(f) { localStorage.setItem(TAG_FILTER_KEY, JSON.stringify(f)); }
+function isTagFilterActive(tag) { return loadTagFilter().includes(tag); }
+// Toggling drops tags no longer in use so a stale filter entry can't silently
+// hide panes with no visible chip to explain why.
+function toggleTagFilter(tag) {
+  const known = new Set(allTagNames());
+  let f = loadTagFilter().filter(t => known.has(t));
+  f = f.includes(tag) ? f.filter(t => t !== tag) : [...f, tag];
+  saveTagFilter(f);
+  renderTagFilterBars();
+  renderStream();
+  if (queueOpen) renderQueueModal();
+}
+// A pane matches the active filter if no filter is set, or its tab has at
+// least one of the active tags (OR semantics).
+function paneMatchesTagFilter(p) {
+  const active = loadTagFilter();
+  if (!active.length) return true;
+  const tab = getTabForPane(paneKey(p));
+  if (!tab) return false;
+  return getTabTags(tab).some(t => active.includes(t));
+}
 
 function tabUnread(tabName) { return panesForTab(tabName).filter(p => p.unread).length; }
 function tabLastTime(tabName) {
@@ -516,6 +579,7 @@ function deleteGroup(name) {
 function renderTabs() {
   renderGroups();  // keep the group bar (and its unread badges) in sync
   pruneLocs();
+  pruneTags();
   const names = [HOME, ...tabsInCurrentGroup()];
   const bar = $('tabbar');
   bar.innerHTML = '';
@@ -556,6 +620,14 @@ function renderTabs() {
       grp.title = group ? `in group "${group}" — reassign` : 'assign tab to a group';
       grp.onclick = e => { e.stopPropagation(); promptGroup(name, grp); };
       btn.appendChild(grp);
+      // Edit this tab's tags; the icon fills in when it has any.
+      const tags = getTabTags(name);
+      const tg = document.createElement('span');
+      tg.className = 'tab-tag' + (tags.length ? ' tagged' : '');
+      tg.textContent = '#';
+      tg.title = tags.length ? `tags: ${tags.join(', ')} — edit` : 'add tags';
+      tg.onclick = e => { e.stopPropagation(); promptTags(name, tg); };
+      btn.appendChild(tg);
       // Closing a tab (×) returns its files/workers/events to Home.
       const x = document.createElement('span');
       x.className = 'tab-close';
@@ -567,6 +639,7 @@ function renderTabs() {
     bar.appendChild(btn);
   }
   updateFavicon();
+  renderTagFilterBars();  // tag set may have changed (new/renamed/pruned tab tags)
 }
 function switchTab(name) { currentTab = name; renderAll(); }
 
@@ -1002,10 +1075,43 @@ function streamUnread() { return allPanes.filter(p => p.unread).length; }
 
 function renderStream() {
   if (!isStreamOpen()) return;
-  renderPaneList($('stream-events'), allPanes, STREAM);
+  renderTagFilterBar($('stream-tagfilter'));
+  renderPaneList($('stream-events'), allPanes.filter(paneMatchesTagFilter), STREAM);
 }
 
 function isStreamOpen() { return localStorage.getItem(STREAM_OPEN_KEY) === '1'; }
+
+// ---- tag filter bar (shared chip UI rendered into both the stream and the
+// queue overlay; each host reads/writes the same TAG_FILTER_KEY) ----
+function renderTagFilterBars() {
+  renderTagFilterBar($('stream-tagfilter'));
+  renderTagFilterBar($('queue-tagfilter'));
+}
+function renderTagFilterBar(host) {
+  if (!host) return;
+  const tags = allTagNames();
+  if (!tags.length) { host.innerHTML = ''; host.hidden = true; return; }
+  host.hidden = false;
+  host.innerHTML = '';
+  const label = document.createElement('span');
+  label.className = 'muted';
+  label.textContent = 'tags:';
+  host.appendChild(label);
+  for (const tag of tags) {
+    const chip = document.createElement('button');
+    chip.className = 'tag-chip' + (isTagFilterActive(tag) ? ' active' : '');
+    chip.textContent = tag;
+    chip.onclick = () => toggleTagFilter(tag);
+    host.appendChild(chip);
+  }
+  if (loadTagFilter().length) {
+    const clr = document.createElement('button');
+    clr.className = 'tag-chip-clear';
+    clr.textContent = 'clear';
+    clr.onclick = () => { saveTagFilter([]); renderTagFilterBars(); renderStream(); if (queueOpen) renderQueueModal(); };
+    host.appendChild(clr);
+  }
+}
 
 // Reflect stream open/closed state in the layout and header button; called on
 // load and whenever the stream is toggled.
@@ -1055,7 +1161,7 @@ let queueSeen = new Map(), queueDeckDone = false;
 // needlessly rebuilt on every quiet background refresh.
 const Q_EMPTY = ' empty', Q_DONE = ' done';
 
-function queueCandidates() { return orderPanes(allPanes.filter(p => p.unread)); }
+function queueCandidates() { return orderPanes(allPanes.filter(p => p.unread && paneMatchesTagFilter(p))); }
 function queueMarkSeen(p) { queueSeen.set(paneKey(p), new Date(p.last_seen || 0)); }
 function queueIsSeen(p) {
   const seenAt = queueSeen.get(paneKey(p));
@@ -1109,6 +1215,7 @@ function openQueueModal() {
   queueAnimGen++;  // invalidate any pending swap timeout from a previous session
   queueSwapPending = false;
   $('queue-modal').hidden = false;
+  renderTagFilterBar($('queue-tagfilter'));
   renderQueueModal();
 }
 function closeQueueModal() {
@@ -1519,6 +1626,69 @@ function promptGroup(tabName, anchor) {
   input.focus();
   input.onkeydown = e => {
     if (e.key === 'Enter') { const n = input.value.trim(); if (n) doAssign(n); }
+    if (e.key === 'Escape') closeMovePopup();
+  };
+}
+
+// promptTags adds/removes free-form tags on a tab (mirrors promptGroup, but a
+// tab can carry any number of tags rather than belonging to a single group).
+function promptTags(tabName, anchor) {
+  closeMovePopup();
+
+  function addTag(raw) {
+    const additions = raw.split(',').map(s => s.trim()).filter(Boolean);
+    if (!additions.length) return;
+    setTabTags(tabName, [...getTabTags(tabName), ...additions]);
+    closeMovePopup();
+    renderTabs();
+  }
+  function removeTag(tag) {
+    setTabTags(tabName, getTabTags(tabName).filter(t => t !== tag));
+    closeMovePopup();
+    renderTabs();
+  }
+
+  const current = getTabTags(tabName);
+  const pop = document.createElement('div');
+  pop.className = 'move-pop';
+
+  if (current.length) {
+    const list = document.createElement('div'); list.className = 'move-tabs';
+    for (const tag of current) {
+      const b = document.createElement('button'); b.textContent = tag + ' ×';
+      b.title = `remove tag "${tag}"`;
+      b.onclick = () => removeTag(tag);
+      list.appendChild(b);
+    }
+    pop.appendChild(list);
+  }
+
+  const others = allTagNames().filter(t => !current.includes(t));
+  if (others.length) {
+    const list = document.createElement('div'); list.className = 'move-tabs';
+    for (const tag of others) {
+      const b = document.createElement('button'); b.textContent = '+ ' + tag;
+      b.onclick = () => addTag(tag);
+      list.appendChild(b);
+    }
+    pop.appendChild(list);
+  }
+
+  const row = document.createElement('div'); row.className = 'move-row';
+  const input = document.createElement('input'); input.placeholder = 'new tag (comma-separate for several)';
+  const add = document.createElement('button'); add.textContent = 'add';
+  add.onclick = () => addTag(input.value);
+  row.append(input, add);
+  pop.appendChild(row);
+
+  const cancel = document.createElement('button'); cancel.textContent = 'done';
+  cancel.onclick = () => closeMovePopup();
+  pop.appendChild(cancel);
+
+  showPopup(pop, anchor);
+  input.focus();
+  input.onkeydown = e => {
+    if (e.key === 'Enter') addTag(input.value);
     if (e.key === 'Escape') closeMovePopup();
   };
 }
