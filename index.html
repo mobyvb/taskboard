@@ -468,7 +468,7 @@ let currentGroup = ALL;  // which group's tabs the tab bar is filtered to (ALL =
 // stable thing across the pane's lifecycle; session_id is a fallback only
 // for events that somehow lack pane_loc. Matches the server's Pane key.
 function keyOf(meta) { try { return meta?.pane_loc || meta?.session_id || null; } catch { return null; } }
-function paneKey(p) { return p.pane_loc || p.session_id || null; }
+function paneKey(p) { return p.key || null; }
 function paneByKey(key) { return allPanes.find(p => paneKey(p) === key) || null; }
 
 function filesForTab(tabName) { return allFiles.filter(f => tabFilter(tabName, 'file', f.path)); }
@@ -820,14 +820,16 @@ function renderWorkers() {
     const forget = document.createElement('button');
     forget.textContent = 'forget';
     forget.title = 'remove this pane from the active list (including its tab assignment)';
-    forget.onclick = e => { e.preventDefault(); forgetPane(k); };
+    forget.onclick = e => { e.preventDefault(); forgetPane(p); };
     d.appendChild(forget);
     $('workers').appendChild(d);
   }
 }
 
-async function forgetPane(key) {
-  if (!confirm('Forget this pane? It will reappear (unassigned) if it sends another event.')) return;
+async function forgetPane(pane) {
+  const key = paneKey(pane);
+  if (pane.last_event_type !== 'session_end' &&
+      !confirm('Forget this pane? It will reappear (unassigned) if it sends another event.')) return;
   const r = await fetch('/api/panes', {
     method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ key })
   });

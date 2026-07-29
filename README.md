@@ -68,7 +68,7 @@ go in that pane.
 | `GET /api/file?path=REL` | file contents |
 | `POST /api/events` | `{event_type, title, description, metadata}` — metadata is arbitrary JSON |
 | `GET /api/events` | raw event log (retained events, newest last) |
-| `GET /api/panes` | all panes (ack/tab/session state; not removed on `session_end`) |
+| `GET /api/panes` | all panes (ack/tab/session state; removed on `session_end`) |
 | `DELETE /api/panes` | `{key}` — forget a pane entirely (including its tab assignment) |
 | `POST /api/panes/ack` | `{key, unread}` — set a pane's ack state; global everywhere it's shown |
 | `POST /api/panes/tab` | `{key, tab}` — assign a pane to a tab (`tab: ""` = Home) |

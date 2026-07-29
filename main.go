@@ -230,6 +230,15 @@ func (s *Store) updatePane(e Event) {
 	if key == "" {
 		return
 	}
+	// A session_end means the claude session in this pane is gone; forget the
+	// pane outright (same as the UI's manual "forget") rather than leaving a
+	// dead entry the user has to clear by hand. If the session is resumed, the
+	// next session_start recreates the pane fresh.
+	if e.Type == "session_end" {
+		delete(s.panes, key)
+		s.rewritePanes()
+		return
+	}
 	p := s.panes[key]
 	if p == nil {
 		p = &Pane{Key: key}
@@ -246,12 +255,8 @@ func (s *Store) updatePane(e Event) {
 	}
 	p.LastType = e.Type
 	p.LastSeen = e.Time
-	if e.Type == "session_end" {
-		p.SessionID = ""
-	} else {
-		p.SessionID = meta.SessionID
-		p.Unread = true
-	}
+	p.SessionID = meta.SessionID
+	p.Unread = true
 	retainPanes(s.panes)
 	s.rewritePanes()
 }
