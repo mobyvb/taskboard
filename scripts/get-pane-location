@@ -1,2 +1,13 @@
 #!/usr/bin/env bash
-echo $PANE_LOC
+# Print this pane's taskboard location. Prefers tmux over an exported
+# PANE_LOC, which inherits into child processes and so can name another pane.
+# The -t is required: without it display-message reports the client's active
+# pane, and outside tmux it still succeeds -- hence the TMUX_PANE guard.
+if [[ -n "${TMUX_PANE:-}" ]]; then
+  loc="$(tmux display-message -p -t "$TMUX_PANE" '#{window_name}-#{window_id}-#{pane_id}' 2>/dev/null)"
+  if [[ -n "$loc" ]]; then
+    echo "$loc"
+    exit 0
+  fi
+fi
+echo "${PANE_LOC:-}"

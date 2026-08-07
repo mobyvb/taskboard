@@ -2,6 +2,9 @@
 # Export PANE_LOC for the current tmux pane. Source this (don't execute) so the
 # export lands in your shell. No-op outside tmux, so it is safe to source from a
 # shell rc unconditionally.
-if [[ -n "${TMUX:-}" ]]; then
-  export PANE_LOC=$(tmux display-message -p '#{window_name}-#{window_id}-#{pane_id}')
+#
+# The -t is required: without it display-message reports the client's active
+# pane, so sourcing this in a background pane exports the wrong location.
+if [[ -n "${TMUX_PANE:-}" ]]; then
+  export PANE_LOC=$(tmux display-message -p -t "$TMUX_PANE" '#{window_name}-#{window_id}-#{pane_id}' 2>/dev/null)
 fi
