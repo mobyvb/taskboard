@@ -66,9 +66,9 @@ collapses the tab half, so either can take the whole window; touching a tab
 re-expands a collapsed tab half. The Task files and Event stream columns are
 hidden by default and toggle with `f` and `s`, the terminal with `p`.
 
-`?layout=classic`, or the header button, switches to the older side-by-side
-column layout where the queue is a full-screen overlay. The choice persists in
-localStorage.
+`?layout=classic` switches to the older side-by-side column layout where the
+queue is a full-screen overlay; `?layout=split` switches back. The choice
+persists in localStorage.
 
 ## API
 

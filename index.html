@@ -190,7 +190,6 @@
     <button id="stream-btn" onclick="toggleStream()">stream</button>
     <button id="tabs-btn" onclick="toggleTabs()">hide tabs</button>
     <button id="queue-btn" onclick="toggleQueue()">queue</button>
-    <button id="layout-btn" onclick="toggleLayout()">split layout</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
     <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
   </header>
@@ -307,17 +306,12 @@ function elapsed(date) {
 function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
 
 // ---- layout mode ----
-// 'split' is opt-in and experimental; 'classic' (today's layout) stays default.
+// Split is the default; ?layout=classic falls back to the older column layout.
 const LAYOUT_KEY = 'taskboard_layout';
 function isSplit() { return (localStorage.getItem(LAYOUT_KEY) ?? 'split') === 'split'; }
-function toggleLayout() {
-  localStorage.setItem(LAYOUT_KEY, isSplit() ? 'classic' : 'split');
-  location.reload();  // simplest safe switch: all state lives in localStorage/the server
-}
 const layoutParam = new URLSearchParams(location.search).get('layout');
 if (layoutParam === 'split' || layoutParam === 'classic') localStorage.setItem(LAYOUT_KEY, layoutParam);
 document.body.classList.toggle('layout-split', isSplit());
-$('layout-btn').textContent = isSplit() ? 'classic layout' : 'split layout';
 
 // ---- identicon ----
 // A deterministic 5x5 mirrored-grid identicon (GitHub-style) rendered inline as
