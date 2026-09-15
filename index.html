@@ -15,9 +15,6 @@
   @media (max-width: 900px) { main { grid-auto-flow: row; } }
   /* min-width:0 keeps a wide child (e.g. a long cwd) from stretching the grid track past the viewport. */
   main > section { min-width: 0; }
-  #stream-col { border-left: 1px solid #2c313a; padding-left: 20px; }
-  #stream-events { max-height: 82vh; overflow-y: auto; overflow-x: hidden; }
-  @media (max-width: 900px) { #stream-col { border-left: none; padding-left: 0; border-top: 1px solid #2c313a; padding-top: 16px; } }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b95a5; margin: 0 0 10px; }
   button { background: #2c313a; color: #dde2e8; border: 1px solid #3c424e; border-radius: 5px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
   button:hover { background: #3c424e; }
@@ -123,7 +120,7 @@
   .pane-dialog-head { display: flex; align-items: center; gap: 10px; }
   .pane-dialog-head strong { font-size: 14px; display: inline-flex; align-items: center; gap: 7px; }
   .pane-dialog-head #pane-status { flex: 1; font-size: 11px; }
-  .pane-cap { margin: 0; padding: 10px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
+  .pane-cap { margin: 0; padding: 10px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; overscroll-behavior: contain; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
   .autorefresh { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b95a5; white-space: nowrap; }
   .update-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e0a855; margin-left: 5px; vertical-align: middle; }
   .update-dot[hidden] { display: none; }
@@ -160,7 +157,7 @@
   body.layout-split { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
   body.layout-split .topbar { flex: none; position: static; }
   body.layout-split #split { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  body.layout-split #split-top { height: var(--split-top, 50%); flex: none; min-height: 80px; overflow: auto; }
+  body.layout-split #split-top { height: var(--split-top, 50%); flex: none; min-height: 80px; overflow: hidden; }
   body.layout-split #split-bottom { flex: 1; min-height: 120px; overflow: hidden; display: flex; }
   #split-divider { display: none; }
   body.layout-split #split-divider { flex: none; height: 10px; cursor: row-resize; background: #1c1f26; border-top: 1px solid #2c313a; border-bottom: 1px solid #2c313a; display: flex; align-items: center; justify-content: center; }
@@ -170,14 +167,18 @@
   body.layout-split #queue-modal { position: static; inset: auto; z-index: auto; background: none; padding: 0; flex: 1; min-width: 0; }
   body.layout-split .queue-dialog { width: 100%; height: 100%; box-sizing: border-box; padding: 12px 16px 16px; border: none; border-radius: 0; border-top: 1px solid #2c313a; box-shadow: none; }
   body.layout-split #queue-close-btn { display: none; }
-  body.layout-split main { grid-auto-columns: minmax(0, 1fr); }
-  body.layout-split #pane-col { grid-column: span 2; }
-  #pane-col .pane-cap { height: 38vh; max-height: none; }
+  body.layout-split main { grid-auto-columns: minmax(0, 1fr); height: 100%; box-sizing: border-box; align-items: stretch; }
+  body.layout-split main > section { overflow-y: auto; min-height: 0; }
+  body.layout-split #pane-col { grid-column: span 2; overflow: hidden; display: flex; flex-direction: column; }
+  body.layout-split #pane-col h2 { flex: none; }
+  body.layout-split #pane-col-host { flex: 1; min-height: 0; display: flex; }
+  body.layout-split #pane-col .pane-cap { height: auto; flex: 1; min-height: 0; }
+  body:not(.layout-split) #pane-col .pane-cap { height: 38vh; max-height: none; }
   body.layout-split.queue-collapsed #split-bottom, body.layout-split.queue-collapsed #split-divider { display: none; }
   body.layout-split.queue-collapsed #split-top { height: auto; flex: 1; }
   body.layout-split.tabs-collapsed #split-top, body.layout-split.tabs-collapsed #split-divider { display: none; }
   body:not(.layout-split) #tabs-btn { display: none; }
-  body.layout-split #files-btn, body.layout-split #stream-btn, body.layout-split #queue-btn { display: none; }
+  body.layout-split #files-btn, body.layout-split #queue-btn { display: none; }
 </style>
 </head>
 <body>
@@ -187,7 +188,6 @@
     <span id="conn" class="muted">connecting…</span>
     <button id="files-btn" onclick="toggleFiles()">files</button>
     <button id="pane-col-btn" onclick="togglePaneCol()">terminal</button>
-    <button id="stream-btn" onclick="toggleStream()">stream</button>
     <button id="tabs-btn" onclick="toggleTabs()">hide tabs</button>
     <button id="queue-btn" onclick="toggleQueue()">queue</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
@@ -212,11 +212,6 @@
       <section id="pane-col" hidden>
         <h2>Terminal <span id="pane-col-title" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
         <div id="pane-col-host"></div>
-      </section>
-      <section id="stream-col" hidden>
-        <h2>Event stream <span class="muted" style="text-transform:none;letter-spacing:0">(all events, arrival order)</span></h2>
-        <div id="stream-tagfilter" class="tag-filter-bar" hidden></div>
-        <div id="stream-events" class="muted">none</div>
       </section>
     </main>
   </div>
@@ -275,7 +270,6 @@
       <dt><kbd>?</kbd></dt><dd>Show this help</dd>
       <dt><kbd>q</kbd></dt><dd>Toggle unread queue (collapse in split layout)</dd>
       <dt><kbd>c</kbd></dt><dd>Collapse the tab half (split layout)</dd>
-      <dt><kbd>s</kbd></dt><dd>Toggle global stream</dd>
       <dt><kbd>f</kbd></dt><dd>Toggle task files</dd>
       <dt><kbd>p</kbd></dt><dd>Toggle terminal column</dd>
       <dt><kbd>t</kbd></dt><dd>Focus next tab</dd>
@@ -361,11 +355,10 @@ const LOCS_KEY = 'taskboard_tab_locs';
 const gotoTargetRe = /^[A-Za-z0-9._-]*@[0-9]+-%[0-9]+$/;
 // Free-form tags per tab (panes inherit their tab's tags for filtering).
 const TAGS_KEY = 'taskboard_tab_tags';
-// Active tag filter (OR'd) shared by the stream and the queue overlay.
+// Active tag filter (OR'd), applied to the queue.
 const TAG_FILTER_KEY = 'taskboard_tag_filter';
-// The unified event stream is its own view of the same panes, independent of
-// the current tab/group.
-const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
+// Scope marker for a pane list that spans every tab, as opposed to one tab's.
+const GLOBAL = '__global__';
 // Task files column: hidden by default in both layouts (least-valuable view now).
 const FILES_OPEN_KEY = 'taskboard_files_open';
 // Auto-refreshing a pane capture resets scroll position and kills any
@@ -542,8 +535,7 @@ function toggleTagFilter(tag) {
   let f = loadTagFilter().filter(t => known.has(t));
   f = f.includes(tag) ? f.filter(t => t !== tag) : [...f, tag];
   saveTagFilter(f);
-  renderTagFilterBars();
-  renderStream();
+  renderTagFilters();
   if (queueOpen) renderQueueModal();
 }
 // A pane matches the active filter if no filter is set, or its tab has at
@@ -697,7 +689,7 @@ function renderTabs() {
     bar.appendChild(btn);
   }
   updateFavicon();
-  renderTagFilterBars();  // tag set may have changed (new/renamed/pruned tab tags)
+  renderTagFilters();  // tag set may have changed (new/renamed/pruned tab tags)
 }
 function switchTab(name) { expandTabs(); currentTab = name; currentPaneKey = null; renderAll(); }
 
@@ -1069,7 +1061,7 @@ function renderCard(pane, e, scope, opts = {}) {
 
   // Readonly info chips keep the action labels short; the pane's tab/group
   // only add value in the stream. Full metadata stays behind "raw".
-  const chips = paneChips(pane, scope === STREAM);
+  const chips = paneChips(pane, scope === GLOBAL);
 
   div.innerHTML = `<div class="top">${k ? identiconImg(k, 'identicon ic-lg') : ''}<span class="type">${esc(e.event_type)}</span>
       <strong>${esc(e.title)}</strong>
@@ -1102,7 +1094,7 @@ function renderCard(pane, e, scope, opts = {}) {
   }
   if (k) {
     // From the stream, jump to the pane's tab (its per-tab queue lives there).
-    if (scope === STREAM) {
+    if (scope === GLOBAL) {
       const dest = pane.tab || HOME;
       add('focus', "switch to this pane's tab", () => focusTab(dest));
     }
@@ -1246,26 +1238,10 @@ async function setPaneTab(key, tab) {
   await loadPanes();
 }
 
-// ---- unified event stream ----
-// A single firehose of every pane's latest notification, independent of the
-// current tab/group. Toggled into its own column; shares the same panes (and
-// ack state) as the per-tab view and the queue overlay.
-function streamUnread() { return allPanes.filter(p => p.unread).length; }
+function unreadPaneCount() { return allPanes.filter(p => p.unread).length; }
 
-function renderStream() {
-  if (!isStreamOpen()) return;
-  renderTagFilterBar($('stream-tagfilter'));
-  renderPaneList($('stream-events'), allPanes.filter(paneMatchesTagFilter), STREAM);
-}
-
-function isStreamOpen() { return localStorage.getItem(STREAM_OPEN_KEY) === '1'; }
-
-// ---- tag filter bar (shared chip UI rendered into both the stream and the
-// queue overlay; each host reads/writes the same TAG_FILTER_KEY) ----
-function renderTagFilterBars() {
-  renderTagFilterBar($('stream-tagfilter'));
-  renderTagFilterBar($('queue-tagfilter'));
-}
+// ---- tag filter bar ----
+function renderTagFilters() { renderTagFilterBar($('queue-tagfilter')); }
 function renderTagFilterBar(host) {
   if (!host) return;
   const tags = allTagNames();
@@ -1287,29 +1263,9 @@ function renderTagFilterBar(host) {
     const clr = document.createElement('button');
     clr.className = 'tag-chip-clear';
     clr.textContent = 'clear';
-    clr.onclick = () => { saveTagFilter([]); renderTagFilterBars(); renderStream(); if (queueOpen) renderQueueModal(); };
+    clr.onclick = () => { saveTagFilter([]); renderTagFilters(); if (queueOpen) renderQueueModal(); };
     host.appendChild(clr);
   }
-}
-
-// Reflect stream open/closed state in the layout and header button; called on
-// load and whenever the stream is toggled.
-function applyStreamVisibility() {
-  const open = isStreamOpen();
-  $('stream-col').hidden = !open;
-  updateStreamBtn();
-  if (open) renderStream();
-}
-
-function updateStreamBtn() {
-  const u = streamUnread();
-  $('stream-btn').textContent = (isStreamOpen() ? 'hide stream' : 'stream') + (u ? ` (${u})` : '');
-  updateCollapseBtns(u);
-}
-
-function toggleStream() {
-  localStorage.setItem(STREAM_OPEN_KEY, isStreamOpen() ? '0' : '1');
-  applyStreamVisibility();
 }
 
 // ---- task files column ----
@@ -1493,7 +1449,7 @@ function expandTabs() {
   setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, false);
   updateCollapseBtns();
 }
-function updateCollapseBtns(u = streamUnread()) {
+function updateCollapseBtns(u = unreadPaneCount()) {
   const label = isSplit() ? (isQueueCollapsed() ? 'queue' : 'hide queue') : 'queue';
   $('queue-btn').textContent = label + (u ? ` (${u})` : '');
   $('tabs-btn').textContent = isTabsCollapsed() ? 'tabs' : 'hide tabs';
@@ -1608,7 +1564,7 @@ function buildQueueCard() {
     stopInlinePaneCapture('queue');
     const slide = document.createElement('div');
     slide.className = 'queue-slide';
-    slide.appendChild(renderCard(p, eventForPane(p, latestEventByKey()), STREAM, { skipPaneButton: true, skipAckButton: true, onAck: ackQueueCard }));
+    slide.appendChild(renderCard(p, eventForPane(p, latestEventByKey()), GLOBAL, { skipPaneButton: true, skipAckButton: true, onAck: ackQueueCard }));
     const paneId = (p.pane_loc || '').match(/%\d+/);
     host.innerHTML = '';
     host.appendChild(slide);
@@ -2046,7 +2002,6 @@ function showPopup(pop, anchor) {
 async function loadEvents() {
   try { allEvents = await fetch('/api/events').then(r => r.json()) || []; } catch { return; }
   renderEvents();
-  renderStream();
   if (queueOpen) renderQueueModal();
 }
 async function loadPanes() {
@@ -2054,8 +2009,7 @@ async function loadPanes() {
   renderWorkers();
   renderPaneCol();
   renderEvents();
-  renderStream();
-  updateStreamBtn();
+  updateCollapseBtns();
   renderTabs();
   if (queueOpen) renderQueueModal();
 }
@@ -2127,7 +2081,6 @@ function connect() {
 }
 
 setupNotifBtn();
-applyStreamVisibility();
 applyFilesVisibility();
 applyPaneColVisibility();
 renderTabs();
@@ -2183,7 +2136,6 @@ document.addEventListener('keydown', e => {
   switch (e.key) {
     case '?': showShortcuts(); break;
     case 'q': toggleQueue(); break;
-    case 's': toggleStream(); break;
     case 'c': toggleTabs(); break;
     case 'f': toggleFiles(); break;
     case 'p': togglePaneCol(); break;

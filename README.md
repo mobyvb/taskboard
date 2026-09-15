@@ -63,8 +63,9 @@ always visible and independent of the selected tab.
 
 Drag the divider to resize the halves. `q` collapses the queue and `c`
 collapses the tab half, so either can take the whole window; touching a tab
-re-expands a collapsed tab half. The Task files and Event stream columns are
-hidden by default and toggle with `f` and `s`, the terminal with `p`.
+re-expands a collapsed tab half. Each top-half column scrolls on its own, so a
+long capture never pushes the workers out of view. The Task files column is
+hidden by default and toggles with `f`, the terminal with `p`.
 
 `?layout=classic` switches to the older side-by-side column layout where the
 queue is a full-screen overlay; `?layout=split` switches back. The choice
