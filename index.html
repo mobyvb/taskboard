@@ -525,16 +525,20 @@ function focusedPane() {
 }
 
 // ---- tag filter (shared by the stream and the queue overlay) ----
-function loadTagFilter() { try { return JSON.parse(localStorage.getItem(TAG_FILTER_KEY)) || []; } catch { return []; } }
+// Entries whose tag no longer exists are dropped on read: pruneTags orphans
+// them when a tab goes away, and the chip bar hides itself once no tags are
+// left, so a surviving entry would filter everything out with nothing to undo it.
+function loadTagFilter() {
+  let f;
+  try { f = JSON.parse(localStorage.getItem(TAG_FILTER_KEY)) || []; } catch { return []; }
+  const known = new Set(allTagNames());
+  return Array.isArray(f) ? f.filter(t => known.has(t)) : [];
+}
 function saveTagFilter(f) { localStorage.setItem(TAG_FILTER_KEY, JSON.stringify(f)); }
 function isTagFilterActive(tag) { return loadTagFilter().includes(tag); }
-// Toggling drops tags no longer in use so a stale filter entry can't silently
-// hide panes with no visible chip to explain why.
 function toggleTagFilter(tag) {
-  const known = new Set(allTagNames());
-  let f = loadTagFilter().filter(t => known.has(t));
-  f = f.includes(tag) ? f.filter(t => t !== tag) : [...f, tag];
-  saveTagFilter(f);
+  const f = loadTagFilter();
+  saveTagFilter(f.includes(tag) ? f.filter(t => t !== tag) : [...f, tag]);
   renderTagFilters();
   if (queueOpen) renderQueueModal();
 }
