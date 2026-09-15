@@ -616,7 +616,8 @@ func main() {
 		}
 		// -J rejoins terminal-wrapped lines using tmux's wrapped-row flag,
 		// so a pane resize doesn't leave stale mid-line breaks from the old width.
-		args := []string{"capture-pane", "-t", in.Pane, "-p", "-J"}
+		// -e keeps SGR color/attribute escapes; without it tmux strips them.
+		args := []string{"capture-pane", "-t", in.Pane, "-p", "-J", "-e"}
 		if in.Lines > 0 {
 			if in.Lines > maxCaptureLines {
 				in.Lines = maxCaptureLines

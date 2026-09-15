@@ -772,6 +772,98 @@ function renderContent(text) {
       return url ? `<a href="${url}" target="_blank" rel="noopener">${url}</a>${trailing}` : u;
     });
 }
+
+// ---- ANSI (SGR) rendering for tmux pane captures ----
+const PANE_FG = '#cdd6e0', PANE_BG = '#0e1014';
+const ANSI16 = [
+  '#6b7280', '#e06c75', '#98c379', '#e5c07b', '#61afef', '#c678dd', '#56b6c2', '#cdd6e0',
+  '#8b95a5', '#f0797f', '#a5e075', '#f0d68a', '#7cc4f5', '#d99bef', '#6fd3e0', '#ffffff',
+];
+const CUBE_LEVELS = [0, 95, 135, 175, 215, 255];
+function clampByte(n) { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.max(0, Math.min(255, n)) : 0; }
+// 16-231: 6x6x6 color cube over CUBE_LEVELS; 232-255: 24-step grayscale ramp.
+function xterm256(idx) {
+  idx = clampByte(idx);
+  if (idx < 16) return ANSI16[idx];
+  if (idx < 232) {
+    const i = idx - 16;
+    return `rgb(${CUBE_LEVELS[Math.floor(i / 36) % 6]},${CUBE_LEVELS[Math.floor(i / 6) % 6]},${CUBE_LEVELS[i % 6]})`;
+  }
+  const level = 8 + 10 * (idx - 232);
+  return `rgb(${level},${level},${level})`;
+}
+function resetSgr(s) { s.bold = s.dim = s.italic = s.underline = s.strike = s.reverse = false; s.fg = s.bg = null; }
+function applySgr(paramStr, s) {
+  const parts = paramStr === '' ? [0] : paramStr.split(';').map(p => p === '' ? 0 : parseInt(p, 10));
+  for (let i = 0; i < parts.length; i++) {
+    const c = parts[i];
+    if (c === 0) resetSgr(s);
+    else if (c === 1) s.bold = true;
+    else if (c === 2) s.dim = true;
+    else if (c === 3) s.italic = true;
+    else if (c === 4) s.underline = true;
+    else if (c === 9) s.strike = true;
+    else if (c === 22) { s.bold = false; s.dim = false; }
+    else if (c === 23) s.italic = false;
+    else if (c === 24) s.underline = false;
+    else if (c === 29) s.strike = false;
+    else if (c === 39) s.fg = null;
+    else if (c === 49) s.bg = null;
+    else if (c === 7) s.reverse = true;
+    else if (c === 27) s.reverse = false;
+    else if (c >= 30 && c <= 37) s.fg = ANSI16[c - 30];
+    else if (c >= 90 && c <= 97) s.fg = ANSI16[8 + c - 90];
+    else if (c >= 40 && c <= 47) s.bg = ANSI16[c - 40];
+    else if (c >= 100 && c <= 107) s.bg = ANSI16[8 + c - 100];
+    else if (c === 38 || c === 48) {
+      const target = c === 38 ? 'fg' : 'bg', mode = parts[i + 1];
+      if (mode === 5) { s[target] = xterm256(parts[i + 2]); i += 2; }
+      else if (mode === 2) { s[target] = `rgb(${clampByte(parts[i + 2])},${clampByte(parts[i + 3])},${clampByte(parts[i + 4])})`; i += 4; }
+      else i = parts.length;
+    }
+  }
+}
+function sgrIsDefault(s) {
+  return !s.bold && !s.dim && !s.italic && !s.underline && !s.strike && !s.reverse && !s.fg && !s.bg;
+}
+function sgrStyle(s) {
+  let fg = s.fg, bg = s.bg;
+  if (s.reverse) { fg = s.bg || PANE_BG; bg = s.fg || PANE_FG; }
+  const decos = [s.underline && 'underline', s.strike && 'line-through'].filter(Boolean);
+  const rules = [];
+  if (fg) rules.push(`color:${fg}`);
+  if (bg) rules.push(`background:${bg}`);
+  if (s.bold) rules.push('font-weight:bold');
+  if (s.dim) rules.push('opacity:0.65');
+  if (s.italic) rules.push('font-style:italic');
+  if (decos.length) rules.push(`text-decoration:${decos.join(' ')}`);
+  return rules.join(';');
+}
+// Splits on SGR ("\x1b[...m") escapes to track style; other CSI/OSC/charset
+// escapes (rare in a capture-pane grid, not a raw stream) are discarded.
+// CSI is params [0-?], then intermediates [ -/], then one final byte [@-~];
+// anything narrower leaks private sequences like ESC[?25h as visible text.
+const ANSI_ESC_RE = /\x1b(?:\[([0-?]*)[ -\/]*([@-~])|\][\s\S]*?(?:\x07|\x1b\\)|[()#][0-9A-Za-z]|[@-_])/g;
+function renderAnsi(text) {
+  const state = {};
+  resetSgr(state);
+  let out = '', lastIndex = 0, m;
+  ANSI_ESC_RE.lastIndex = 0;
+  while ((m = ANSI_ESC_RE.exec(text))) {
+    if (m.index > lastIndex) out += emitAnsiRun(text.slice(lastIndex, m.index), state);
+    if (m[2] === 'm') applySgr(m[1], state);
+    lastIndex = ANSI_ESC_RE.lastIndex;
+  }
+  out += emitAnsiRun(text.slice(lastIndex), state);
+  return out;
+}
+function emitAnsiRun(run, state) {
+  if (!run) return '';
+  const html = renderContent(run);
+  if (sgrIsDefault(state)) return html;
+  const style = sgrStyle(state);
+  return style ? `<span style="${style}">${html}</span>` : html;
+}
 async function fetchFileContent(encPath) {
   const r = await fetch('/api/file?path=' + encPath);
   if (!r.ok) throw new Error(await r.text());
@@ -1611,7 +1703,7 @@ function buildInlinePane(paneId, ns) {
       <button onclick="inlinePaneSendText('${ns}', false)">send</button>
     </div>`;
   div.querySelector(`#${ns}-autorefresh`).checked = isAutoRefresh();
-  div.querySelector(`#${ns}-pane-cap`).innerHTML = renderContent(paneCache.get(paneId) ?? '…');
+  div.querySelector(`#${ns}-pane-cap`).innerHTML = renderAnsi(paneCache.get(paneId) ?? '…');
   // Caller starts the capture loop after appending this to the document (see
   // buildQueueCard/renderPaneCol) so the first refresh can find the <pre>.
   return div;
@@ -1985,7 +2077,7 @@ function applyPaneText(pre, text, forceBottom) {
   if (!pre) return;
   const atBottom = forceBottom || (pre.scrollHeight - pre.scrollTop - pre.clientHeight < 8);
   const prevTop = pre.scrollTop;
-  pre.innerHTML = renderContent(text);
+  pre.innerHTML = renderAnsi(text);
   pre.scrollTop = atBottom ? pre.scrollHeight : prevTop;
 }
 // payload is {pane, text} for literal text or {pane, key} for a named key.
