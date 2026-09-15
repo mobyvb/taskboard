@@ -11,9 +11,8 @@
   h1 { font-size: 16px; margin: 0; flex: 1; }
   nav#groupbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #15181d; border-bottom: 1px solid #2c313a; }
   nav#tabbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #181b21; border-bottom: 1px solid #2c313a; }
-  main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; align-items: start; }
-  main.with-stream { grid-template-columns: 1fr 1fr 1fr; }
-  @media (max-width: 900px) { main, main.with-stream { grid-template-columns: 1fr; } }
+  main { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 20px; padding: 20px; align-items: start; }
+  @media (max-width: 900px) { main { grid-auto-flow: row; } }
   /* min-width:0 keeps a wide child (e.g. a long cwd) from stretching the grid track past the viewport. */
   main > section { min-width: 0; }
   #stream-col { border-left: 1px solid #2c313a; padding-left: 20px; }
@@ -105,13 +104,13 @@
   .queue-empty button { margin-top: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 9px; }
   .queue-empty button.qa-next { background: #202b40; border-color: #33456b; color: #a9c4ef; }
   .queue-empty button.qa-next:hover { background: #283656; }
-  .queue-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; flex: 1; min-height: 0; }
-  .queue-pane .pane-cap { flex: 1; max-height: none; }
+  .inline-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; flex: 1; min-height: 0; }
+  .inline-pane .pane-cap { flex: 1; max-height: none; }
   /* The primary actions: large, high-contrast, and anchored at the bottom of
      the dialog — right where the send-row input sits, since that's where the
      user's attention already is when deciding "done" vs "next". */
-  .queue-actions { display: flex; gap: 10px; flex: none; }
-  .queue-actions button { flex: 1; padding: 14px 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; border-radius: 9px; }
+  .queue-actions { display: flex; gap: 10px; flex: none; justify-content: center; }
+  .queue-actions button { flex: 0 1 200px; padding: 11px 0; font-size: 14px; font-weight: 600; letter-spacing: .01em; border-radius: 9px; }
   .queue-actions button:disabled { opacity: .4; cursor: default; }
   .queue-actions .qa-ack { background: #1f3d2c; border-color: #3f7a5c; color: #8fe3b3; }
   .queue-actions .qa-ack:hover:not(:disabled) { background: #26492f; }
@@ -133,7 +132,8 @@
   .send-row input { flex: 1; min-width: 0; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 5px 10px; font: 13px monospace; }
   details.ack-fold { background: none; border: none; margin-top: 6px; }
   details.ack-fold > summary { padding: 6px 0; color: #8b95a5; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-  .worker { display: inline-flex; gap: 8px; align-items: center; background: #1c2b22; border: 1px solid #2f4a3a; border-radius: 6px; padding: 5px 10px; margin: 0 8px 8px 0; }
+  .worker { display: inline-flex; gap: 8px; align-items: center; background: #1c2b22; border: 1px solid #2f4a3a; border-radius: 6px; padding: 5px 10px; margin: 0 8px 8px 0; cursor: pointer; }
+  .worker.selected { background: #24402f; border-color: #4a7a5c; }
   /* Deterministic pane glyph. Pixelated so the 5x5 grid stays crisp when scaled up. */
   .identicon { width: 18px; height: 18px; border-radius: 4px; image-rendering: pixelated; flex: none; vertical-align: middle; }
   .identicon.ic-lg { width: 26px; height: 26px; border-radius: 5px; }
@@ -156,6 +156,28 @@
   .shortcuts-dialog dd { margin: 0; color: #b7c0ce; font-size: 13px; }
   .shortcuts-dialog .sc-section { grid-column: 1 / -1; margin-top: 6px; color: #717c8d; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
   .shortcuts-dialog .sc-hint { margin: 16px 0 0; color: #717c8d; font-size: 12px; text-align: center; }
+  /* split layout: queue as a real bottom panel instead of the overlay */
+  body.layout-split { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  body.layout-split .topbar { flex: none; position: static; }
+  body.layout-split #split { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  body.layout-split #split-top { height: var(--split-top, 50%); flex: none; min-height: 80px; overflow: auto; }
+  body.layout-split #split-bottom { flex: 1; min-height: 120px; overflow: hidden; display: flex; }
+  #split-divider { display: none; }
+  body.layout-split #split-divider { flex: none; height: 10px; cursor: row-resize; background: #1c1f26; border-top: 1px solid #2c313a; border-bottom: 1px solid #2c313a; display: flex; align-items: center; justify-content: center; }
+  body.layout-split #split-divider::after { content: ''; width: 46px; height: 3px; border-radius: 2px; background: #4a5162; }
+  body.layout-split #split-divider:hover::after { background: #8b95a5; }
+  body.layout-split #split-divider.dragging::after { background: #6fb3d1; }
+  body.layout-split #queue-modal { position: static; inset: auto; z-index: auto; background: none; padding: 0; flex: 1; min-width: 0; }
+  body.layout-split .queue-dialog { width: 100%; height: 100%; box-sizing: border-box; padding: 12px 16px 16px; border: none; border-radius: 0; border-top: 1px solid #2c313a; box-shadow: none; }
+  body.layout-split #queue-close-btn { display: none; }
+  body.layout-split main { grid-auto-columns: minmax(0, 1fr); }
+  body.layout-split #pane-col { grid-column: span 2; }
+  #pane-col .pane-cap { height: 38vh; max-height: none; }
+  body.layout-split.queue-collapsed #split-bottom, body.layout-split.queue-collapsed #split-divider { display: none; }
+  body.layout-split.queue-collapsed #split-top { height: auto; flex: 1; }
+  body.layout-split.tabs-collapsed #split-top, body.layout-split.tabs-collapsed #split-divider { display: none; }
+  body:not(.layout-split) #tabs-btn { display: none; }
+  body.layout-split #files-btn, body.layout-split #stream-btn, body.layout-split #queue-btn { display: none; }
 </style>
 </head>
 <body>
@@ -163,46 +185,61 @@
   <header>
     <h1>taskboard</h1>
     <span id="conn" class="muted">connecting…</span>
+    <button id="files-btn" onclick="toggleFiles()">files</button>
+    <button id="pane-col-btn" onclick="togglePaneCol()">terminal</button>
     <button id="stream-btn" onclick="toggleStream()">stream</button>
-    <button id="queue-btn" onclick="openQueueModal()">queue</button>
+    <button id="tabs-btn" onclick="toggleTabs()">hide tabs</button>
+    <button id="queue-btn" onclick="toggleQueue()">queue</button>
+    <button id="layout-btn" onclick="toggleLayout()">split layout</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
     <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
   </header>
   <nav id="groupbar"></nav>
   <nav id="tabbar"></nav>
 </div>
-<main>
-  <section>
-    <h2>Task files</h2>
-    <div id="files" class="muted">loading…</div>
-  </section>
-  <section>
-    <h2>Active workers</h2>
-    <div id="workers" class="muted">none</div>
-    <h2 style="margin-top:20px">Worker events</h2>
-    <div id="events" class="muted">none</div>
-  </section>
-  <section id="stream-col" hidden>
-    <h2>Event stream <span class="muted" style="text-transform:none;letter-spacing:0">(all events, arrival order)</span></h2>
-    <div id="stream-tagfilter" class="tag-filter-bar" hidden></div>
-    <div id="stream-events" class="muted">none</div>
-  </section>
-</main>
-<div id="queue-modal" hidden onclick="if (event.target === this) closeQueueModal()">
-  <div class="queue-dialog">
-    <div class="queue-head">
-      <strong>unread queue</strong>
-      <span id="queue-pos" class="queue-pos"></span>
-      <button id="queue-undo-btn" onclick="undoQueueAction()" title="undo the last queue action (ack or next) (z) — up to 5 back" disabled>↩ undo</button>
-      <button onclick="unackAllPanes()" title="mark every pane unread again (undo a batch of acks)">unack all</button>
-      <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
-      <button onclick="closeQueueModal()">close</button>
-    </div>
-    <div id="queue-tagfilter" class="tag-filter-bar" hidden></div>
-    <div id="queue-card-host" class="queue-card-host"></div>
-    <div class="queue-actions">
-      <button id="queue-ack-btn" class="qa-ack" onclick="ackCurrentQueueCard()" title="acknowledge (a) — card slides off the top">✓ Ack <kbd>a</kbd></button>
-      <button id="queue-next-btn" class="qa-next" onclick="nextQueueCard()" title="skip (n) — leave unread, show the next one">Next <kbd>n</kbd> →</button>
+<div id="split">
+  <div id="split-top">
+    <main>
+      <section id="files-col" hidden>
+        <h2>Task files</h2>
+        <div id="files" class="muted">loading…</div>
+      </section>
+      <section>
+        <h2>Active workers</h2>
+        <div id="workers" class="muted">none</div>
+        <h2 style="margin-top:20px">Worker events</h2>
+        <div id="events" class="muted">none</div>
+      </section>
+      <section id="pane-col" hidden>
+        <h2>Terminal <span id="pane-col-title" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
+        <div id="pane-col-host"></div>
+      </section>
+      <section id="stream-col" hidden>
+        <h2>Event stream <span class="muted" style="text-transform:none;letter-spacing:0">(all events, arrival order)</span></h2>
+        <div id="stream-tagfilter" class="tag-filter-bar" hidden></div>
+        <div id="stream-events" class="muted">none</div>
+      </section>
+    </main>
+  </div>
+  <div id="split-divider"></div>
+  <div id="split-bottom">
+    <div id="queue-modal" hidden onclick="if (!isSplit() && event.target === this) closeQueueModal()">
+      <div class="queue-dialog">
+        <div class="queue-head">
+          <strong>unread queue</strong>
+          <span id="queue-pos" class="queue-pos"></span>
+          <button id="queue-undo-btn" onclick="undoQueueAction()" title="undo the last queue action (ack or next) (z) — up to 5 back" disabled>↩ undo</button>
+          <button onclick="unackAllPanes()" title="mark every pane unread again (undo a batch of acks)">unack all</button>
+          <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
+          <button id="queue-close-btn" onclick="closeQueueModal()">close</button>
+        </div>
+        <div id="queue-tagfilter" class="tag-filter-bar" hidden></div>
+        <div id="queue-card-host" class="queue-card-host"></div>
+        <div class="queue-actions">
+          <button id="queue-ack-btn" class="qa-ack" onclick="ackCurrentQueueCard()" title="acknowledge (a) — card slides off the top">✓ Ack <kbd>a</kbd></button>
+          <button id="queue-next-btn" class="qa-next" onclick="nextQueueCard()" title="skip (n) — leave unread, show the next one">Next <kbd>n</kbd> →</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -237,8 +274,11 @@
     <dl>
       <div class="sc-section">Global</div>
       <dt><kbd>?</kbd></dt><dd>Show this help</dd>
-      <dt><kbd>q</kbd></dt><dd>Toggle unread queue</dd>
+      <dt><kbd>q</kbd></dt><dd>Toggle unread queue (collapse in split layout)</dd>
+      <dt><kbd>c</kbd></dt><dd>Collapse the tab half (split layout)</dd>
       <dt><kbd>s</kbd></dt><dd>Toggle global stream</dd>
+      <dt><kbd>f</kbd></dt><dd>Toggle task files</dd>
+      <dt><kbd>p</kbd></dt><dd>Toggle terminal column</dd>
       <dt><kbd>t</kbd></dt><dd>Focus next tab</dd>
       <dt><kbd>g</kbd></dt><dd>Focus next tab group</dd>
       <div class="sc-section">Queue</div>
@@ -265,6 +305,19 @@ function elapsed(date) {
   return Math.floor(h / 24) + 'd';
 }
 function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+
+// ---- layout mode ----
+// 'split' is opt-in and experimental; 'classic' (today's layout) stays default.
+const LAYOUT_KEY = 'taskboard_layout';
+function isSplit() { return (localStorage.getItem(LAYOUT_KEY) ?? 'split') === 'split'; }
+function toggleLayout() {
+  localStorage.setItem(LAYOUT_KEY, isSplit() ? 'classic' : 'split');
+  location.reload();  // simplest safe switch: all state lives in localStorage/the server
+}
+const layoutParam = new URLSearchParams(location.search).get('layout');
+if (layoutParam === 'split' || layoutParam === 'classic') localStorage.setItem(LAYOUT_KEY, layoutParam);
+document.body.classList.toggle('layout-split', isSplit());
+$('layout-btn').textContent = isSplit() ? 'classic layout' : 'split layout';
 
 // ---- identicon ----
 // A deterministic 5x5 mirrored-grid identicon (GitHub-style) rendered inline as
@@ -319,6 +372,8 @@ const TAG_FILTER_KEY = 'taskboard_tag_filter';
 // The unified event stream is its own view of the same panes, independent of
 // the current tab/group.
 const STREAM = '__stream__', STREAM_OPEN_KEY = 'taskboard_stream_open';
+// Task files column: hidden by default in both layouts (least-valuable view now).
+const FILES_OPEN_KEY = 'taskboard_files_open';
 // Auto-refreshing a pane capture resets scroll position and kills any
 // in-progress text selection, so it's opt-in and defaults off.
 const AUTOREFRESH_KEY = 'taskboard_pane_autorefresh';
@@ -463,6 +518,7 @@ let allFiles = [], allPanes = [], allEvents = [];
 let renderedFilePaths = [];
 let currentTab = HOME;
 let currentGroup = ALL;  // which group's tabs the tab bar is filtered to (ALL = every tab)
+let currentPaneKey = null;  // which of the current tab's panes drives the terminal column
 
 // A pane's identity: pane_loc (the tmux location) first, since that's the
 // stable thing across the pane's lifecycle; session_id is a fallback only
@@ -473,6 +529,13 @@ function paneByKey(key) { return allPanes.find(p => paneKey(p) === key) || null;
 
 function filesForTab(tabName) { return allFiles.filter(f => tabFilter(tabName, 'file', f.path)); }
 function panesForTab(tabName) { return allPanes.filter(p => tabFilter(tabName, 'pane', paneKey(p))); }
+
+// The pane driving the terminal column: the explicitly selected one, else the
+// tab's first pane (unread-first, most-recent-first order), else none.
+function focusedPane() {
+  const ordered = orderPanes(panesForTab(currentTab));
+  return ordered.find(p => paneKey(p) === currentPaneKey) || ordered[0] || null;
+}
 
 // ---- tag filter (shared by the stream and the queue overlay) ----
 function loadTagFilter() { try { return JSON.parse(localStorage.getItem(TAG_FILTER_KEY)) || []; } catch { return []; } }
@@ -565,6 +628,7 @@ function renderGroups() {
 // Switching group filters the tab bar; if the active tab isn't in the new group,
 // fall back to Home (which is never grouped).
 function switchGroup(name) {
+  expandTabs();
   currentGroup = name;
   if (currentTab !== HOME && !tabsInCurrentGroup().includes(currentTab)) currentTab = HOME;
   renderAll();
@@ -641,7 +705,7 @@ function renderTabs() {
   updateFavicon();
   renderTagFilterBars();  // tag set may have changed (new/renamed/pruned tab tags)
 }
-function switchTab(name) { currentTab = name; renderAll(); }
+function switchTab(name) { expandTabs(); currentTab = name; currentPaneKey = null; renderAll(); }
 
 // ---- favicon (unread indicator) ----
 // Total unread across Home + all tabs; drives the favicon's unread dot.
@@ -677,6 +741,7 @@ function updateFavicon() {
 // filter (used to jump from a stream event to its worker's tab). Home is never
 // grouped, so it's always reachable.
 function focusTab(name) {
+  expandTabs();
   currentTab = name;
   if (name !== HOME) {
     const g = getGroupForTab(name);
@@ -698,7 +763,7 @@ async function closeTab(name) {
   if (currentTab === name) currentTab = HOME;
   renderAll();
 }
-function renderAll() { renderTabs(); renderFiles(); renderWorkers(); renderEvents(); }
+function renderAll() { renderTabs(); renderFiles(); renderWorkers(); renderEvents(); renderPaneCol(); }
 
 // ---- files ----
 const urlRe = /(?:https?|vscode):\/\/[^\s<>"&]+/g;
@@ -720,6 +785,7 @@ async function fetchFileContent(encPath) {
 }
 
 function renderFiles() {
+  if ($('files-col').hidden) return;
   const files = filesForTab(currentTab);
   renderedFilePaths = files.map(f => f.path);
   const host = $('files');
@@ -806,13 +872,15 @@ async function loadFiles() {
 function renderWorkers() {
   const panes = panesForTab(currentTab);
   $('workers').innerHTML = panes.length ? '' : '<span class="muted">none</span>';
+  const focused = focusedPane();
   for (const p of panes) {
     const k = paneKey(p);
     const d = document.createElement('span');
-    d.className = 'worker';
+    d.className = 'worker' + (focused && k === paneKey(focused) ? ' selected' : '');
     d.innerHTML = `${identiconImg(k)}<strong>${esc(p.title || k)}</strong>
       <span class="muted">${esc(p.last_event_type)}</span>
       ${p.pane_loc ? `<button onclick="gotoPane('${esc(p.pane_loc)}')">goto</button>` : ''}`;
+    d.onclick = e => { if (e.target.closest('button')) return; currentPaneKey = k; renderWorkers(); renderPaneCol(); };
     const mv = document.createElement('button');
     mv.textContent = 'tab ▾';
     mv.onclick = e => { e.preventDefault(); promptMove('pane', k, mv); };
@@ -835,6 +903,29 @@ async function forgetPane(pane) {
   });
   if (!r.ok) { toast('forget failed: ' + await r.text()); return; }
   loadPanes();
+}
+
+// ---- terminal column (per-tab inline pane) ----
+function renderPaneCol() {
+  if ($('pane-col').hidden) return;
+  const p = focusedPane();
+  const paneId = (p && (p.pane_loc || '').match(/%\d+/)) || null;
+  const host = $('pane-col-host');
+  // Set before the remount guard below: a live pane's title tracks its latest
+  // event, so it changes while the mounted terminal itself stays put.
+  $('pane-col-title').innerHTML = p ? identiconImg(paneKey(p)) + ' ' + esc(p.title || paneKey(p)) : '';
+  // Called on every SSE tick and the 15s poll; skip remounting an already-live
+  // terminal so its scroll position and any in-progress selection survive.
+  if (paneId && paneId[0] === inlinePanes.get('tab')?.paneId && host.firstChild) return;
+  if (!paneId) {
+    stopInlinePaneCapture('tab');
+    host.innerHTML = '<span class="muted">no pane for this tab</span>';
+    return;
+  }
+  stopInlinePaneCapture('tab');
+  host.innerHTML = '';
+  host.appendChild(buildInlinePane(paneId[0], 'tab'));
+  startInlinePaneCapture('tab', paneId[0]);
 }
 
 // ---- events ----
@@ -1120,7 +1211,6 @@ function renderTagFilterBar(host) {
 function applyStreamVisibility() {
   const open = isStreamOpen();
   $('stream-col').hidden = !open;
-  document.querySelector('main').classList.toggle('with-stream', open);
   updateStreamBtn();
   if (open) renderStream();
 }
@@ -1128,12 +1218,39 @@ function applyStreamVisibility() {
 function updateStreamBtn() {
   const u = streamUnread();
   $('stream-btn').textContent = (isStreamOpen() ? 'hide stream' : 'stream') + (u ? ` (${u})` : '');
-  $('queue-btn').textContent = 'queue' + (u ? ` (${u})` : '');
+  updateCollapseBtns(u);
 }
 
 function toggleStream() {
   localStorage.setItem(STREAM_OPEN_KEY, isStreamOpen() ? '0' : '1');
   applyStreamVisibility();
+}
+
+// ---- task files column ----
+function isFilesOpen() { return localStorage.getItem(FILES_OPEN_KEY) === '1'; }
+function applyFilesVisibility() {
+  const open = isFilesOpen();
+  $('files-col').hidden = !open;
+  $('files-btn').textContent = open ? 'hide files' : 'files';
+  if (open) renderFiles();
+}
+function toggleFiles() {
+  localStorage.setItem(FILES_OPEN_KEY, isFilesOpen() ? '0' : '1');
+  applyFilesVisibility();
+}
+
+// ---- terminal column toggle ----
+const PANE_COL_KEY = 'taskboard_pane_col_open';
+function isPaneColOpen() { const raw = localStorage.getItem(PANE_COL_KEY); return raw === null ? isSplit() : raw === '1'; }
+function applyPaneColVisibility() {
+  const open = isPaneColOpen();
+  $('pane-col').hidden = !open;
+  $('pane-col-btn').textContent = open ? 'hide terminal' : 'terminal';
+  if (open) renderPaneCol();
+}
+function togglePaneCol() {
+  localStorage.setItem(PANE_COL_KEY, isPaneColOpen() ? '0' : '1');
+  applyPaneColVisibility();
 }
 
 // ---- unread queue overlay ----
@@ -1225,9 +1342,75 @@ function closeQueueModal() {
   queueRenderedKey = null;
   queueAnimGen++;
   queueSwapPending = false;
-  stopQueuePaneCapture();
+  stopInlinePaneCapture('queue');
   stopQueueNeighborPrefetch();
   $('queue-modal').hidden = true;
+}
+
+// In split mode the queue panel is always mounted; q/#queue-btn just
+// collapse/expand it instead of opening/closing the modal.
+const QUEUE_COLLAPSED_KEY = 'taskboard_queue_collapsed', SPLIT_TOP_KEY = 'taskboard_split_top';
+// Drag the divider to resize; clamped so neither pane can be squeezed away.
+function initSplitDivider() {
+  const saved = parseFloat(localStorage.getItem(SPLIT_TOP_KEY));
+  if (!isNaN(saved)) $('split').style.setProperty('--split-top', saved + '%');
+  $('split-divider').addEventListener('pointerdown', e => {
+    e.preventDefault();
+    $('split-divider').classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    const move = ev => {
+      const rect = $('split').getBoundingClientRect();
+      const pct = Math.min(85, Math.max(15, (ev.clientY - rect.top) / rect.height * 100));
+      $('split').style.setProperty('--split-top', pct + '%');
+    };
+    const up = () => {
+      $('split-divider').classList.remove('dragging');
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      localStorage.setItem(SPLIT_TOP_KEY, parseFloat($('split').style.getPropertyValue('--split-top')));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+}
+const TABS_COLLAPSED_KEY = 'taskboard_tabs_collapsed';
+function isQueueCollapsed() { return document.body.classList.contains('queue-collapsed'); }
+function isTabsCollapsed() { return document.body.classList.contains('tabs-collapsed'); }
+function setCollapsed(cls, key, on) {
+  document.body.classList.toggle(cls, on);
+  localStorage.setItem(key, on ? '1' : '0');
+}
+// Collapsing either half expands the other; both collapsed would leave a blank page.
+function toggleQueue() {
+  if (!isSplit()) { isQueueOpen() ? closeQueueModal() : openQueueModal(); return; }
+  const on = !isQueueCollapsed();
+  setCollapsed('queue-collapsed', QUEUE_COLLAPSED_KEY, on);
+  if (on) setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, false);
+  else if ($('queue-modal').hidden) openQueueModal();
+  updateCollapseBtns();
+}
+function toggleTabs() {
+  if (!isSplit()) return;
+  const on = !isTabsCollapsed();
+  setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, on);
+  if (on) {
+    setCollapsed('queue-collapsed', QUEUE_COLLAPSED_KEY, false);
+    if ($('queue-modal').hidden) openQueueModal();
+  }
+  updateCollapseBtns();
+}
+// Reaching for a tab (tab bar, group bar, or a queue card's "focus") means
+// wanting to see it, so a collapsed tab half reopens itself.
+function expandTabs() {
+  if (!isSplit() || !isTabsCollapsed()) return;
+  setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, false);
+  updateCollapseBtns();
+}
+function updateCollapseBtns(u = streamUnread()) {
+  const label = isSplit() ? (isQueueCollapsed() ? 'queue' : 'hide queue') : 'queue';
+  $('queue-btn').textContent = label + (u ? ` (${u})` : '');
+  $('tabs-btn').textContent = isTabsCollapsed() ? 'tabs' : 'hide tabs';
 }
 
 // startOverQueue clears the "seen" set so Next walks the full deck again.
@@ -1292,7 +1475,7 @@ function buildQueueCard() {
     setControls(false);
     $('queue-pos').textContent = 'all caught up';
     if (queueRenderedKey !== Q_EMPTY) {
-      stopQueuePaneCapture(); stopQueueNeighborPrefetch();
+      stopInlinePaneCapture('queue'); stopQueueNeighborPrefetch();
       host.innerHTML = `<div class="queue-empty">
         <div class="qe-check">✓</div>
         <h2>All caught up</h2>
@@ -1316,7 +1499,7 @@ function buildQueueCard() {
       setControls(false);
       $('queue-pos').textContent = `${panes.length} still unread`;
       if (queueRenderedKey !== Q_DONE) {
-        stopQueuePaneCapture(); stopQueueNeighborPrefetch();
+        stopInlinePaneCapture('queue'); stopQueueNeighborPrefetch();
         host.innerHTML = `<div class="queue-empty">
           <div class="qe-check qe-check-review">↻</div>
           <h2>Reviewed them all</h2>
@@ -1336,7 +1519,7 @@ function buildQueueCard() {
   $('queue-pos').textContent = `${idx + 1} of ${panes.length}`;
   const p = panes[idx];
   if (paneKey(p) !== queueRenderedKey) {
-    stopQueuePaneCapture();
+    stopInlinePaneCapture('queue');
     const slide = document.createElement('div');
     slide.className = 'queue-slide';
     slide.appendChild(renderCard(p, eventForPane(p, latestEventByKey()), STREAM, { skipPaneButton: true, skipAckButton: true, onAck: ackQueueCard }));
@@ -1344,9 +1527,9 @@ function buildQueueCard() {
     host.innerHTML = '';
     host.appendChild(slide);
     // Start the capture only after the slide is in the document — otherwise the
-    // first forced refresh can't find #queue-pane-cap (it's still detached) and
-    // the initial card would sit blank until the next poll tick.
-    if (paneId) { slide.appendChild(buildInlinePane(paneId[0])); startQueuePaneCapture(paneId[0]); }
+    // first forced refresh can't find #queue-pane-cap (still detached) and the
+    // initial card would sit blank until the next poll tick.
+    if (paneId) { slide.appendChild(buildInlinePane(paneId[0], 'queue')); startInlinePaneCapture('queue', paneId[0]); }
     queueRenderedKey = paneKey(p);
   }
   startQueueNeighborPrefetch(neighborPaneIds(panes, idx));
@@ -1405,36 +1588,38 @@ async function unackAllPanes() {
   await loadPanes();
 }
 
-// ---- queue overlay's inline pane (view + send keys, no second dialog) ----
-let queuePaneTimer = null, queuePaneId = null, queuePaneLastText = null;
+// ---- inline pane (view + send keys, no second dialog) ----
+// Namespaced so the queue panel and the tab terminal can each mount one at
+// once without colliding on ids or a shared capture timer.
+const inlinePanes = new Map();  // ns -> { paneId, timer, lastText }
 // Captures for panes are cached by pane id so a card that was recently a
 // neighbor (or the previously-shown card) paints instantly from cache while
 // a fresh capture loads in the background, instead of showing "…" every swap.
 const paneCache = new Map();
 
-function buildInlinePane(paneId) {
+function buildInlinePane(paneId, ns) {
   const div = document.createElement('div');
-  div.className = 'queue-pane';
+  div.className = 'inline-pane';
   div.innerHTML = `
-    <pre id="queue-pane-cap" class="pane-cap"></pre>
+    <pre id="${ns}-pane-cap" class="pane-cap"></pre>
     <div class="pane-keys">
-      <label class="autorefresh"><input type="checkbox" id="queue-autorefresh" onchange="setAutoRefreshFromCheckbox(this.checked)"> auto-refresh</label>
-      <button onclick="refreshQueuePane(true)" title="refresh now">↻ refresh<span id="queue-refresh-dot" class="update-dot" hidden title="pane contents changed"></span></button>
-      <button onclick="queuePaneSend({key:'Enter'})" title="Enter">⏎ Enter</button>
-      <button onclick="queuePaneSend({key:'Escape'})">Esc</button>
-      <button onclick="queuePaneSend({key:'Up'})">↑</button>
-      <button onclick="queuePaneSend({key:'Down'})">↓</button>
-      <button onclick="queuePaneSend({key:'C-c'})">Ctrl-C</button>
+      <label class="autorefresh"><input type="checkbox" id="${ns}-autorefresh" onchange="setAutoRefreshFromCheckbox(this.checked)"> auto-refresh</label>
+      <button onclick="inlinePaneRefresh('${ns}', true)" title="refresh now">↻ refresh<span id="${ns}-refresh-dot" class="update-dot" hidden title="pane contents changed"></span></button>
+      <button onclick="inlinePaneSend('${ns}', {key:'Enter'})" title="Enter">⏎ Enter</button>
+      <button onclick="inlinePaneSend('${ns}', {key:'Escape'})">Esc</button>
+      <button onclick="inlinePaneSend('${ns}', {key:'Up'})">↑</button>
+      <button onclick="inlinePaneSend('${ns}', {key:'Down'})">↓</button>
+      <button onclick="inlinePaneSend('${ns}', {key:'C-c'})">Ctrl-C</button>
     </div>
     <div class="send-row">
-      <input id="queue-pane-input" placeholder="type text — Enter to run, or 'send' to type without running"
-             onkeydown="if (event.key==='Enter'){event.preventDefault(); queuePaneSendText(true);}">
-      <button onclick="queuePaneSendText(false)">send</button>
+      <input id="${ns}-pane-input" placeholder="type text — Enter to run, or 'send' to type without running"
+             onkeydown="if (event.key==='Enter'){event.preventDefault(); inlinePaneSendText('${ns}', true);}">
+      <button onclick="inlinePaneSendText('${ns}', false)">send</button>
     </div>`;
-  div.querySelector('#queue-autorefresh').checked = isAutoRefresh();
-  div.querySelector('#queue-pane-cap').innerHTML = renderContent(paneCache.get(paneId) ?? '…');
+  div.querySelector(`#${ns}-autorefresh`).checked = isAutoRefresh();
+  div.querySelector(`#${ns}-pane-cap`).innerHTML = renderContent(paneCache.get(paneId) ?? '…');
   // Caller starts the capture loop after appending this to the document (see
-  // buildQueueCard) so the first refresh can find #queue-pane-cap.
+  // buildQueueCard/renderPaneCol) so the first refresh can find the <pre>.
   return div;
 }
 
@@ -1462,37 +1647,41 @@ async function prefetchPane(paneId) {
   try { paneCache.set(paneId, (await capturePane(paneId, PANE_SCROLLBACK)) || '(empty)'); } catch { /* keep last-known content */ }
 }
 
-function startQueuePaneCapture(paneId) {
-  queuePaneId = paneId;
-  queuePaneLastText = paneCache.get(paneId) ?? null;
-  refreshQueuePane(true, true);  // force, and jump to latest output on this first paint
-  restartQueuePaneTimer();
+function startInlinePaneCapture(ns, paneId) {
+  const state = { paneId, timer: null, lastText: paneCache.get(paneId) ?? null };
+  inlinePanes.set(ns, state);
+  inlinePaneRefresh(ns, true, true);  // force, and jump to latest output on this first paint
+  restartInlinePaneTimer(ns);
 }
 // The poll runs regardless of the auto-refresh setting — see refreshPaneModal
 // for why: it flags a pending change (the dot) without forcing a repaint when
 // auto-refresh is off.
-function restartQueuePaneTimer() {
-  clearInterval(queuePaneTimer);
-  queuePaneTimer = setInterval(() => refreshQueuePane(false), 1500);
+function restartInlinePaneTimer(ns) {
+  const state = inlinePanes.get(ns);
+  if (!state) return;
+  clearInterval(state.timer);
+  state.timer = setInterval(() => inlinePaneRefresh(ns, false), 1500);
 }
-function stopQueuePaneCapture() {
-  clearInterval(queuePaneTimer);
-  queuePaneTimer = null; queuePaneId = null; queuePaneLastText = null;
+function stopInlinePaneCapture(ns) {
+  const state = inlinePanes.get(ns);
+  if (state) clearInterval(state.timer);
+  inlinePanes.delete(ns);
 }
-async function refreshQueuePane(force = false, forceBottom = false) {
-  if (!queuePaneId) return;
-  const pre = $('queue-pane-cap'), dot = $('queue-refresh-dot');
+async function inlinePaneRefresh(ns, force = false, forceBottom = false) {
+  const state = inlinePanes.get(ns);
+  if (!state) return;
+  const pre = $(`${ns}-pane-cap`), dot = $(`${ns}-refresh-dot`);
   if (!pre) return;
   try {
-    const text = (await capturePane(queuePaneId, PANE_SCROLLBACK)) || '(empty)';
-    if (text === queuePaneLastText) {
+    const text = (await capturePane(state.paneId, PANE_SCROLLBACK)) || '(empty)';
+    if (text === state.lastText) {
       if (dot) dot.hidden = true;
       if (forceBottom) pre.scrollTop = pre.scrollHeight;  // cached content shown from the top; drop to latest
       return;
     }
     if (force || isAutoRefresh()) {
-      queuePaneLastText = text;
-      paneCache.set(queuePaneId, text);
+      state.lastText = text;
+      paneCache.set(state.paneId, text);
       applyPaneText(pre, text, forceBottom);
       if (dot) dot.hidden = true;
     } else if (dot) {
@@ -1502,29 +1691,32 @@ async function refreshQueuePane(force = false, forceBottom = false) {
 }
 
 // setAutoRefreshFromCheckbox is the one control point for the auto-refresh
-// setting (shared by the pane modal and the queue's inline pane, since both
-// checkboxes reflect and drive the same preference); it restarts whichever
-// polling timers are currently active and keeps both checkboxes in sync.
+// setting (shared by the pane modal and every mounted inline pane, since all
+// their checkboxes reflect and drive the same preference); it restarts
+// whichever polling timers are currently active and keeps every checkbox in sync.
 function setAutoRefreshFromCheckbox(on) {
   setAutoRefresh(on);
   // Turning it on applies any pending change immediately rather than waiting
   // for the next poll tick.
   if (paneModal.id) { if (on) refreshPaneModal(true); }
-  if (queuePaneId) { if (on) refreshQueuePane(true); }
   const a = $('pane-autorefresh'); if (a) a.checked = on;
-  const b = $('queue-autorefresh'); if (b) b.checked = on;
+  for (const ns of inlinePanes.keys()) {
+    if (on) inlinePaneRefresh(ns, true);
+    const cb = $(`${ns}-autorefresh`); if (cb) cb.checked = on;
+  }
 }
-async function queuePaneSend(payload) {
-  if (!queuePaneId) return;
-  try { await sendPaneKeys({ pane: queuePaneId, ...payload }); }
+async function inlinePaneSend(ns, payload) {
+  const state = inlinePanes.get(ns);
+  if (!state) return;
+  try { await sendPaneKeys({ pane: state.paneId, ...payload }); }
   catch (err) { toast('send failed: ' + err.message); return; }
-  setTimeout(() => refreshQueuePane(true), 120);
+  setTimeout(() => inlinePaneRefresh(ns, true), 120);
 }
-async function queuePaneSendText(submit) {
-  const input = $('queue-pane-input');
+async function inlinePaneSendText(ns, submit) {
+  const input = $(`${ns}-pane-input`);
   const text = input.value;
-  if (text) await queuePaneSend({ text });
-  if (submit) await queuePaneSend({ key: 'Enter' });
+  if (text) await inlinePaneSend(ns, { text });
+  if (submit) await inlinePaneSend(ns, { key: 'Enter' });
   input.value = ''; input.focus();
 }
 
@@ -1774,6 +1966,7 @@ async function loadEvents() {
 async function loadPanes() {
   try { allPanes = await fetch('/api/panes').then(r => r.json()) || []; } catch { return; }
   renderWorkers();
+  renderPaneCol();
   renderEvents();
   renderStream();
   updateStreamBtn();
@@ -1849,7 +2042,16 @@ function connect() {
 
 setupNotifBtn();
 applyStreamVisibility();
+applyFilesVisibility();
+applyPaneColVisibility();
 renderTabs();
+if (isSplit()) {
+  initSplitDivider();
+  if (localStorage.getItem(TABS_COLLAPSED_KEY) === '1') document.body.classList.add('tabs-collapsed');
+  else if (localStorage.getItem(QUEUE_COLLAPSED_KEY) === '1') document.body.classList.add('queue-collapsed');
+  openQueueModal();
+  updateCollapseBtns();
+}
 connect();
 // Load everything up front so the first paint doesn't wait on the SSE
 // handshake; the stream then keeps it live.
@@ -1863,7 +2065,7 @@ setInterval(() => { renderTabs(); loadFiles(); loadPanes(); }, 15000);
 // ---- keyboard shortcuts ----
 function showShortcuts() { $('shortcuts-modal').hidden = false; }
 function hideShortcuts() { $('shortcuts-modal').hidden = true; }
-function isQueueOpen() { return !$('queue-modal').hidden; }
+function isQueueOpen() { return !$('queue-modal').hidden && !document.body.classList.contains('queue-collapsed'); }
 function isTypingTarget(el) {
   return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }
@@ -1885,7 +2087,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('shortcuts-modal').hidden) hideShortcuts();
     else if (!$('pane-modal').hidden) closePaneModal();
-    else if (!$('queue-modal').hidden) closeQueueModal();
+    else if (!isSplit() && !$('queue-modal').hidden) closeQueueModal();
     return;
   }
   // Leave modified keys and text entry alone so shortcuts never eat real input.
@@ -1894,8 +2096,11 @@ document.addEventListener('keydown', e => {
   if (!$('shortcuts-modal').hidden) return;
   switch (e.key) {
     case '?': showShortcuts(); break;
-    case 'q': isQueueOpen() ? closeQueueModal() : openQueueModal(); break;
+    case 'q': toggleQueue(); break;
     case 's': toggleStream(); break;
+    case 'c': toggleTabs(); break;
+    case 'f': toggleFiles(); break;
+    case 'p': togglePaneCol(); break;
     case 't': focusNextTab(); break;
     case 'g': focusNextGroup(); break;
     case 'a': if (isQueueOpen()) { e.preventDefault(); ackCurrentQueueCard(); } break;

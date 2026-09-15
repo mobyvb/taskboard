@@ -54,6 +54,22 @@ Flags: `-port 8723`, `-allow context.txt` (repeatable filename whitelist),
 `-data ~/.taskboard` (persistence dir: `events.jsonl` + `panes.json`; events are
 replayed on restart, pane state — ack/tab/etc. — is snapshotted separately).
 
+## Layout
+
+The window is split in half. The top half is the per-tab view: active workers,
+their events, and a live terminal for the focused tab's pane (click a worker
+chip to pick which pane it follows). The bottom half is the unread queue,
+always visible and independent of the selected tab.
+
+Drag the divider to resize the halves. `q` collapses the queue and `c`
+collapses the tab half, so either can take the whole window; touching a tab
+re-expands a collapsed tab half. The Task files and Event stream columns are
+hidden by default and toggle with `f` and `s`, the terminal with `p`.
+
+`?layout=classic`, or the header button, switches to the older side-by-side
+column layout where the queue is a full-screen overlay. The choice persists in
+localStorage.
+
 ## API
 
 A pane is identified by `pane_loc` (falling back to `session_id` only for
