@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <title>taskboard</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --sidebar-span: 3; }
   body { font: 14px/1.5 -apple-system, sans-serif; background: #14161a; color: #dde2e8; margin: 0; }
   .topbar { position: sticky; top: 0; z-index: 5; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: #1c1f26; border-bottom: 1px solid #2c313a; }
+  header { display: flex; align-items: center; gap: 10px; padding: 7px 14px; background: #1c1f26; border-bottom: 1px solid #2c313a; }
   h1 { font-size: 16px; margin: 0; flex: 1; }
-  nav#groupbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #15181d; border-bottom: 1px solid #2c313a; }
-  nav#tabbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px; background: #181b21; border-bottom: 1px solid #2c313a; }
-  main { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 20px; padding: 20px; align-items: start; }
+  nav#groupbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 14px; background: #15181d; border-bottom: 1px solid #2c313a; }
+  nav#tabbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 14px; background: #181b21; border-bottom: 1px solid #2c313a; }
+  main { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 14px; padding: 14px; align-items: start; }
   @media (max-width: 900px) { main { grid-auto-flow: row; } }
   /* min-width:0 keeps a wide child (e.g. a long cwd) from stretching the grid track past the viewport. */
   main > section { min-width: 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b95a5; margin: 0 0 10px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b95a5; margin: 0 0 7px; }
   button { background: #2c313a; color: #dde2e8; border: 1px solid #3c424e; border-radius: 5px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
   button:hover { background: #3c424e; }
   .tab { display: inline-flex; align-items: center; gap: 6px; }
@@ -37,25 +37,31 @@
   .tab-tag { color: #6b7280; padding: 0 3px; border-radius: 3px; line-height: 1; }
   .tab-tag:hover { background: #3c424e; color: #fff; }
   .tab-tag.tagged { color: #7fbf7f; }
-  .tag-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+  .tag-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 7px; }
   .tag-chip { border-radius: 12px; }
   .tag-chip.active { background: #2d6b4a; border-color: #3a825a; color: #d3f7e3; }
   .tag-chip-clear { color: #8b95a5; }
+  .seg-group { display: flex; }
+  .seg-group .tag-chip { border-radius: 0; }
+  .seg-group .tag-chip + .tag-chip { margin-left: -1px; }
+  .seg-group .tag-chip.active { position: relative; z-index: 1; }
+  .seg-group .tag-chip:first-child { border-radius: 12px 0 0 12px; }
+  .seg-group .tag-chip:last-child { border-radius: 0 12px 12px 0; }
   details { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; margin-bottom: 8px; }
-  summary { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  summary { padding: 6px 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
   summary code { flex: 1; }
-  pre { margin: 0; padding: 12px; border-top: 1px solid #2c313a; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; color: #b9c2cf; max-height: 50vh; overflow: auto; }
-  .editor { width: 100%; min-height: 300px; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 10px; font: 12.5px/1.5 monospace; box-sizing: border-box; resize: vertical; }
-  .event { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+  pre { margin: 0; padding: 9px; border-top: 1px solid #2c313a; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; color: #b9c2cf; max-height: 50vh; overflow: auto; }
+  .editor { width: 100%; min-height: 300px; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 8px; font: 12.5px/1.5 monospace; box-sizing: border-box; resize: vertical; }
+  .event { background: #1c1f26; border: 1px solid #2c313a; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
   .event .top { display: flex; gap: 8px; align-items: center; }
   .event .type { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #2d4a6b; }
   .event .time { color: #717c8d; font-size: 12px; margin-left: auto; }
-  .event .desc { color: #9aa4b4; margin: 4px 0; }
+  .event .desc { color: #9aa4b4; margin: 3px 0; }
   .event pre { border: none; padding: 6px 0 0; max-height: 160px; }
   .event.read { opacity: .55; }
   .event { overflow-wrap: anywhere; }
-  .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #8b95a5; }
-  .event .meta { margin-top: 5px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 3px 9px; font-size: 12px; color: #8b95a5; }
+  .event .meta { margin-top: 4px; }
   .meta .mi { white-space: nowrap; min-width: 0; }
   /* cwd can be long: let it scroll within its container rather than widen it. */
   .meta .mi.cwd { overflow-x: auto; max-width: 100%; }
@@ -63,7 +69,7 @@
   .meta .mi.tab, .meta .mi.group { padding: 1px 9px; border-radius: 9px; font-weight: 600; }
   .meta .mi.tab { background: #2d4a6b; color: #d3e3f7; }
   .meta .mi.group { background: #4a3a6b; color: #e7dbf7; }
-  .event .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .event .actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
   .event .actions button { min-width: 68px; text-align: center; white-space: nowrap; }
   .event details.raw { background: none; border: none; border-radius: 0; margin: 5px 0 0; }
   .event details.raw > summary { padding: 0; color: #717c8d; font-size: 11px; }
@@ -77,50 +83,56 @@
      in a centered flex overlay) — that's what read as "buttons moving
      around" between cards. A constant-size dialog with an internal scroll
      region keeps the header and its controls perfectly still. */
-  .queue-dialog { display: flex; flex-direction: column; gap: 10px; width: 97vw; height: 95vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
-  .queue-head { display: flex; align-items: center; gap: 10px; flex: none; }
+  .queue-dialog { display: flex; flex-direction: column; gap: 7px; width: 97vw; height: 95vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 10px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .queue-head { display: flex; align-items: center; gap: 8px; flex: none; }
   .queue-head strong { font-size: 14px; }
   .queue-pos { flex: 1; font-size: 11px; color: #8b95a5; }
   /* Cards are swapped by absolutely-positioning each one and sliding it in/out
      of this frame (see .queue-slide) rather than resizing the frame itself —
-     a constant-size frame keeps the header and footer perfectly still while a
-     card swipes through it. */
+     a constant-size frame keeps the header perfectly still while a card
+     swipes through it. */
   .queue-card-host { flex: 1; min-height: 0; position: relative; overflow: hidden; }
   .queue-slide, .queue-empty { position: absolute; inset: 0; transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s ease; }
   /* Small inset so card content (esp. the send-row input) isn't clipped flush
-     against the frame's edges or crowded by the footer just below. */
-  .queue-slide { display: flex; flex-direction: column; gap: 10px; overflow: auto; padding: 2px 3px 5px; }
+     against the frame's edges. Matches main's grid so the sidebar/terminal
+     seam lands at the same x-position top and bottom. */
+  .queue-slide { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); gap: 14px; overflow: hidden; padding: 2px 2px 5px; }
+  .queue-slide > .event { min-height: 0; overflow-y: auto; }
+  .queue-slide > .event .top { flex-wrap: wrap; }
+  .queue-slide > .event .time { flex-basis: 100%; margin-left: 0; text-align: right; }
+  .queue-slide > .event .meta { flex-direction: column; align-items: flex-start; }
+  .queue-slide > .inline-pane { grid-column: span var(--sidebar-span); min-width: 0; margin-top: 0; }
+  @media (max-width: 700px) {
+    .queue-slide { display: flex; flex-direction: column; overflow: auto; }
+    .queue-slide > .event { flex: none; max-height: 40%; }
+    .queue-slide > .inline-pane { flex: 1; }
+  }
   .qs-enter-left { transform: translateX(-115%); opacity: 0; }
   .qs-exit-right { transform: translateX(115%); opacity: 0; }
   .qs-exit-up { transform: translateY(-115%); opacity: 0; }
-  .queue-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; }
+  .queue-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 16px; }
   .queue-empty .qe-check { width: 56px; height: 56px; border-radius: 50%; border: 2px solid #3f7a5c; color: #6fd39c; display: flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 4px; }
   .queue-empty .qe-check-review { border-color: #33456b; color: #a9c4ef; }
   .queue-empty h2 { margin: 0; font-size: 26px; font-weight: 600; color: #dde2e8; }
   .queue-empty p { margin: 0; font-size: 13px; color: #8b95a5; max-width: 42ch; }
-  .queue-empty button { margin-top: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 9px; }
+  .queue-empty button { margin-top: 6px; padding: 8px 16px; font-size: 14px; font-weight: 600; border-radius: 9px; }
   .queue-empty button.qa-next { background: #202b40; border-color: #33456b; color: #a9c4ef; }
   .queue-empty button.qa-next:hover { background: #283656; }
   .inline-pane { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; flex: 1; min-height: 0; }
   .inline-pane .pane-cap { flex: 1; max-height: none; }
-  /* The primary actions: large, high-contrast, and anchored at the bottom of
-     the dialog — right where the send-row input sits, since that's where the
-     user's attention already is when deciding "done" vs "next". */
-  .queue-actions { display: flex; gap: 10px; flex: none; justify-content: center; }
-  .queue-actions button { flex: 0 1 200px; padding: 11px 0; font-size: 14px; font-weight: 600; letter-spacing: .01em; border-radius: 9px; }
-  .queue-actions button:disabled { opacity: .4; cursor: default; }
-  .queue-actions .qa-ack { background: #1f3d2c; border-color: #3f7a5c; color: #8fe3b3; }
-  .queue-actions .qa-ack:hover:not(:disabled) { background: #26492f; }
-  .queue-actions .qa-next { background: #202b40; border-color: #33456b; color: #a9c4ef; }
-  .queue-actions .qa-next:hover:not(:disabled) { background: #283656; }
+  .queue-head .qa-ack { background: #1f3d2c; border-color: #3f7a5c; color: #8fe3b3; }
+  .queue-head .qa-ack:hover:not(:disabled) { background: #26492f; }
+  .queue-head .qa-next { background: #202b40; border-color: #33456b; color: #a9c4ef; }
+  .queue-head .qa-next:hover:not(:disabled) { background: #283656; }
+  .queue-head .qa-ack:disabled, .queue-head .qa-next:disabled { opacity: .4; cursor: default; }
   /* pane modal (own layer, above the columns and above the queue modal) */
   #pane-modal { position: fixed; inset: 0; z-index: 31; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #pane-modal[hidden] { display: none; }
-  .pane-dialog { display: flex; flex-direction: column; gap: 10px; width: min(1000px, 95vw); max-height: 90vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
-  .pane-dialog-head { display: flex; align-items: center; gap: 10px; }
+  .pane-dialog { display: flex; flex-direction: column; gap: 7px; width: min(1000px, 95vw); max-height: 90vh; background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 10px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .pane-dialog-head { display: flex; align-items: center; gap: 8px; }
   .pane-dialog-head strong { font-size: 14px; display: inline-flex; align-items: center; gap: 7px; }
   .pane-dialog-head #pane-status { flex: 1; font-size: 11px; }
-  .pane-cap { margin: 0; padding: 10px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; overscroll-behavior: contain; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
+  .pane-cap { margin: 0; padding: 8px; background: #0e1014; border: 1px solid #2c313a; border-radius: 4px; flex: 1; overflow: auto; overscroll-behavior: contain; white-space: pre; font: 12px/1.45 monospace; color: #cdd6e0; }
   .autorefresh { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b95a5; white-space: nowrap; }
   .update-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e0a855; margin-left: 5px; vertical-align: middle; }
   .update-dot[hidden] { display: none; }
@@ -134,7 +146,7 @@
   /* Deterministic pane glyph. Pixelated so the 5x5 grid stays crisp when scaled up. */
   .identicon { width: 18px; height: 18px; border-radius: 4px; image-rendering: pixelated; flex: none; vertical-align: middle; }
   .identicon.ic-lg { width: 26px; height: 26px; border-radius: 5px; }
-  .move-pop { position: absolute; z-index: 20; max-width: 260px; background: #1c1f26; border: 1px solid #3c424e; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  .move-pop { position: absolute; z-index: 20; max-width: 260px; background: #1c1f26; border: 1px solid #3c424e; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 5px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
   .move-pop .move-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
   .move-pop .move-row { display: flex; gap: 6px; }
   .move-pop input { flex: 1; min-width: 0; background: #0e1014; color: #dde2e8; border: 1px solid #3c424e; border-radius: 4px; padding: 3px 8px; font: 12px sans-serif; }
@@ -142,12 +154,11 @@
   .toast { background: #2d4a6b; padding: 10px 14px; border-radius: 6px; margin-top: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
   .muted { color: #717c8d; }
   kbd { display: inline-block; min-width: 1em; padding: 1px 6px; border-radius: 4px; border: 1px solid #4a5162; border-bottom-width: 2px; background: #0e1014; color: #cdd6e0; font: 600 11px/1.4 ui-monospace, monospace; text-align: center; }
-  .queue-actions kbd { margin: 0 3px; border-color: currentColor; background: rgba(0,0,0,.2); color: inherit; opacity: .85; }
   /* shortcuts overlay (top layer, above every modal) */
   #shortcuts-modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #shortcuts-modal[hidden] { display: none; }
-  .shortcuts-dialog { width: min(440px, 94vw); background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
-  .shortcuts-dialog h2 { margin: 0 0 14px; font-size: 16px; }
+  .shortcuts-dialog { width: min(440px, 94vw); background: #1c1f26; border: 1px solid #3c424e; border-radius: 8px; padding: 13px 15px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  .shortcuts-dialog h2 { margin: 0 0 10px; font-size: 16px; }
   .shortcuts-dialog dl { display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; margin: 0; align-items: center; }
   .shortcuts-dialog dt { text-align: right; }
   .shortcuts-dialog dd { margin: 0; color: #b7c0ce; font-size: 13px; }
@@ -165,11 +176,11 @@
   body.layout-split #split-divider:hover::after { background: #8b95a5; }
   body.layout-split #split-divider.dragging::after { background: #6fb3d1; }
   body.layout-split #queue-modal { position: static; inset: auto; z-index: auto; background: none; padding: 0; flex: 1; min-width: 0; }
-  body.layout-split .queue-dialog { width: 100%; height: 100%; box-sizing: border-box; padding: 12px 16px 16px; border: none; border-radius: 0; border-top: 1px solid #2c313a; box-shadow: none; }
+  body.layout-split .queue-dialog { width: 100%; height: 100%; box-sizing: border-box; padding: 9px 12px 12px; border: none; border-radius: 0; border-top: 1px solid #2c313a; box-shadow: none; }
   body.layout-split #queue-close-btn { display: none; }
   body.layout-split main { grid-auto-columns: minmax(0, 1fr); height: 100%; box-sizing: border-box; align-items: stretch; }
   body.layout-split main > section { overflow-y: auto; min-height: 0; }
-  body.layout-split #pane-col { grid-column: span 2; overflow: hidden; display: flex; flex-direction: column; }
+  body.layout-split #pane-col { grid-column: span var(--sidebar-span); overflow: hidden; display: flex; flex-direction: column; }
   body.layout-split #pane-col h2 { flex: none; }
   body.layout-split #pane-col-host { flex: 1; min-height: 0; display: flex; }
   body.layout-split #pane-col .pane-cap { height: auto; flex: 1; min-height: 0; }
@@ -177,7 +188,7 @@
   body.layout-split.queue-collapsed #split-bottom, body.layout-split.queue-collapsed #split-divider { display: none; }
   body.layout-split.queue-collapsed #split-top { height: auto; flex: 1; }
   body.layout-split.tabs-collapsed #split-top, body.layout-split.tabs-collapsed #split-divider { display: none; }
-  body:not(.layout-split) #tabs-btn { display: none; }
+  body:not(.layout-split) #split-view { display: none; }
   body.layout-split #files-btn, body.layout-split #queue-btn { display: none; }
 </style>
 </head>
@@ -187,8 +198,11 @@
     <h1>taskboard</h1>
     <span id="conn" class="muted">connecting…</span>
     <button id="files-btn" onclick="toggleFiles()">files</button>
-    <button id="pane-col-btn" onclick="togglePaneCol()">terminal</button>
-    <button id="tabs-btn" onclick="toggleTabs()">hide tabs</button>
+    <span id="split-view" class="seg-group">
+      <button id="sv-tabs" class="tag-chip" onclick="setSplitView('tabs')">tabs</button>
+      <button id="sv-both" class="tag-chip" onclick="setSplitView('both')">both</button>
+      <button id="sv-queue" class="tag-chip" onclick="setSplitView('queue')">queue</button>
+    </span>
     <button id="queue-btn" onclick="toggleQueue()">queue</button>
     <button id="notif-btn" onclick="Notification.requestPermission().then(setupNotifBtn)">enable notifications</button>
     <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
@@ -206,10 +220,10 @@
       <section>
         <h2>Active workers</h2>
         <div id="workers" class="muted">none</div>
-        <h2 style="margin-top:20px">Worker events</h2>
+        <h2 style="margin-top:14px">Worker events</h2>
         <div id="events" class="muted">none</div>
       </section>
-      <section id="pane-col" hidden>
+      <section id="pane-col">
         <h2>Terminal <span id="pane-col-title" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
         <div id="pane-col-host"></div>
       </section>
@@ -222,6 +236,8 @@
         <div class="queue-head">
           <strong>unread queue</strong>
           <span id="queue-pos" class="queue-pos"></span>
+          <button id="queue-ack-btn" class="qa-ack" onclick="ackCurrentQueueCard()" title="acknowledge (a) — card slides off the top">✓ ack</button>
+          <button id="queue-next-btn" class="qa-next" onclick="nextQueueCard()" title="skip (n) — leave unread, show the next one">next →</button>
           <button id="queue-undo-btn" onclick="undoQueueAction()" title="undo the last queue action (ack or next) (z) — up to 5 back" disabled>↩ undo</button>
           <button onclick="unackAllPanes()" title="mark every pane unread again (undo a batch of acks)">unack all</button>
           <button onclick="showShortcuts()" title="keyboard shortcuts (?)">?</button>
@@ -229,10 +245,6 @@
         </div>
         <div id="queue-tagfilter" class="tag-filter-bar" hidden></div>
         <div id="queue-card-host" class="queue-card-host"></div>
-        <div class="queue-actions">
-          <button id="queue-ack-btn" class="qa-ack" onclick="ackCurrentQueueCard()" title="acknowledge (a) — card slides off the top">✓ Ack <kbd>a</kbd></button>
-          <button id="queue-next-btn" class="qa-next" onclick="nextQueueCard()" title="skip (n) — leave unread, show the next one">Next <kbd>n</kbd> →</button>
-        </div>
       </div>
     </div>
   </div>
@@ -268,10 +280,9 @@
     <dl>
       <div class="sc-section">Global</div>
       <dt><kbd>?</kbd></dt><dd>Show this help</dd>
-      <dt><kbd>q</kbd></dt><dd>Toggle unread queue (collapse in split layout)</dd>
-      <dt><kbd>c</kbd></dt><dd>Collapse the tab half (split layout)</dd>
+      <dt><kbd>q</kbd></dt><dd>Toggle queue half (split layout) / unread queue (classic)</dd>
+      <dt><kbd>c</kbd></dt><dd>Toggle tab half (split layout only)</dd>
       <dt><kbd>f</kbd></dt><dd>Toggle task files</dd>
-      <dt><kbd>p</kbd></dt><dd>Toggle terminal column</dd>
       <dt><kbd>t</kbd></dt><dd>Focus next tab</dd>
       <dt><kbd>g</kbd></dt><dd>Focus next tab group</dd>
       <div class="sc-section">Queue</div>
@@ -989,7 +1000,6 @@ async function forgetPane(pane) {
 
 // ---- terminal column (per-tab inline pane) ----
 function renderPaneCol() {
-  if ($('pane-col').hidden) return;
   const p = focusedPane();
   const paneId = (p && (p.pane_loc || '').match(/%\d+/)) || null;
   const host = $('pane-col-host');
@@ -1087,10 +1097,8 @@ function renderCard(pane, e, scope, opts = {}) {
   // The queue overlay shows the pane inline instead (see renderQueueModal),
   // so it skips this button rather than opening a redundant second dialog.
   if (paneId && !opts.skipPaneButton) add('pane', 'open this pane (view + send keys)', () => openPaneModal(paneId, pane));
-  // Ack state is global for the pane — acking here also clears it in the
-  // queue, global stream, and its tab's stream. The queue overlay renders its
-  // own prominent Ack button in the dialog footer instead (see
-  // buildQueueCard), so it skips this smaller one to avoid a duplicate.
+  // Ack state is global for the pane. The queue overlay has its own ack
+  // button in the header (see buildQueueCard), so it skips this one.
   if (!opts.skipAckButton) {
     add(isRead ? 'un-ack' : 'ack',
         isRead ? 'move back to unacknowledged' : 'acknowledge (move below the fold)',
@@ -1285,20 +1293,6 @@ function toggleFiles() {
   applyFilesVisibility();
 }
 
-// ---- terminal column toggle ----
-const PANE_COL_KEY = 'taskboard_pane_col_open';
-function isPaneColOpen() { const raw = localStorage.getItem(PANE_COL_KEY); return raw === null ? isSplit() : raw === '1'; }
-function applyPaneColVisibility() {
-  const open = isPaneColOpen();
-  $('pane-col').hidden = !open;
-  $('pane-col-btn').textContent = open ? 'hide terminal' : 'terminal';
-  if (open) renderPaneCol();
-}
-function togglePaneCol() {
-  localStorage.setItem(PANE_COL_KEY, isPaneColOpen() ? '0' : '1');
-  applyPaneColVisibility();
-}
-
 // ---- unread queue overlay ----
 // A "cycle through one unread card at a time, looping back to the start" view
 // over the same unread panes as the stream. The displayed card is pinned by
@@ -1393,9 +1387,7 @@ function closeQueueModal() {
   $('queue-modal').hidden = true;
 }
 
-// In split mode the queue panel is always mounted; q/#queue-btn just
-// collapse/expand it instead of opening/closing the modal.
-const QUEUE_COLLAPSED_KEY = 'taskboard_queue_collapsed', SPLIT_TOP_KEY = 'taskboard_split_top';
+const SPLIT_TOP_KEY = 'taskboard_split_top';
 // Drag the divider to resize; clamped so neither pane can be squeezed away.
 function initSplitDivider() {
   const saved = parseFloat(localStorage.getItem(SPLIT_TOP_KEY));
@@ -1420,43 +1412,32 @@ function initSplitDivider() {
     window.addEventListener('pointerup', up);
   });
 }
-const TABS_COLLAPSED_KEY = 'taskboard_tabs_collapsed';
+const SPLIT_VIEW_KEY = 'taskboard_split_view';
 function isQueueCollapsed() { return document.body.classList.contains('queue-collapsed'); }
 function isTabsCollapsed() { return document.body.classList.contains('tabs-collapsed'); }
-function setCollapsed(cls, key, on) {
-  document.body.classList.toggle(cls, on);
-  localStorage.setItem(key, on ? '1' : '0');
+function splitView() { return localStorage.getItem(SPLIT_VIEW_KEY) || 'both'; }
+function setSplitView(v) {
+  document.body.classList.toggle('tabs-collapsed', v === 'queue');
+  document.body.classList.toggle('queue-collapsed', v === 'tabs');
+  localStorage.setItem(SPLIT_VIEW_KEY, v);
+  if (v !== 'tabs' && $('queue-modal').hidden) openQueueModal();
+  updateQueueUI();
 }
-// Collapsing either half expands the other; both collapsed would leave a blank page.
-function toggleQueue() {
-  if (!isSplit()) { isQueueOpen() ? closeQueueModal() : openQueueModal(); return; }
-  const on = !isQueueCollapsed();
-  setCollapsed('queue-collapsed', QUEUE_COLLAPSED_KEY, on);
-  if (on) setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, false);
-  else if ($('queue-modal').hidden) openQueueModal();
-  updateCollapseBtns();
-}
-function toggleTabs() {
-  if (!isSplit()) return;
-  const on = !isTabsCollapsed();
-  setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, on);
-  if (on) {
-    setCollapsed('queue-collapsed', QUEUE_COLLAPSED_KEY, false);
-    if ($('queue-modal').hidden) openQueueModal();
-  }
-  updateCollapseBtns();
-}
+function toggleQueue() { isQueueOpen() ? closeQueueModal() : openQueueModal(); }
+function toggleQueueHalf() { setSplitView(isQueueCollapsed() ? 'both' : 'tabs'); }
+function toggleTabsHalf() { setSplitView(isTabsCollapsed() ? 'both' : 'queue'); }
 // Reaching for a tab (tab bar, group bar, or a queue card's "focus") means
 // wanting to see it, so a collapsed tab half reopens itself.
 function expandTabs() {
-  if (!isSplit() || !isTabsCollapsed()) return;
-  setCollapsed('tabs-collapsed', TABS_COLLAPSED_KEY, false);
-  updateCollapseBtns();
+  if (isSplit() && splitView() === 'queue') setSplitView('both');
 }
-function updateCollapseBtns(u = unreadPaneCount()) {
-  const label = isSplit() ? (isQueueCollapsed() ? 'queue' : 'hide queue') : 'queue';
-  $('queue-btn').textContent = label + (u ? ` (${u})` : '');
-  $('tabs-btn').textContent = isTabsCollapsed() ? 'tabs' : 'hide tabs';
+function updateQueueUI(u = unreadPaneCount()) {
+  $('queue-btn').textContent = 'queue' + (u ? ` (${u})` : '');
+  const v = splitView();
+  $('sv-tabs').classList.toggle('active', v === 'tabs');
+  $('sv-both').classList.toggle('active', v === 'both');
+  $('sv-queue').classList.toggle('active', v === 'queue');
+  $('sv-queue').textContent = 'queue' + (u ? ` (${u})` : '');
 }
 
 // startOverQueue clears the "seen" set so Next walks the full deck again.
@@ -2013,7 +1994,7 @@ async function loadPanes() {
   renderWorkers();
   renderPaneCol();
   renderEvents();
-  updateCollapseBtns();
+  updateQueueUI();
   renderTabs();
   if (queueOpen) renderQueueModal();
 }
@@ -2086,14 +2067,11 @@ function connect() {
 
 setupNotifBtn();
 applyFilesVisibility();
-applyPaneColVisibility();
 renderTabs();
 if (isSplit()) {
   initSplitDivider();
-  if (localStorage.getItem(TABS_COLLAPSED_KEY) === '1') document.body.classList.add('tabs-collapsed');
-  else if (localStorage.getItem(QUEUE_COLLAPSED_KEY) === '1') document.body.classList.add('queue-collapsed');
   openQueueModal();
-  updateCollapseBtns();
+  setSplitView(splitView());
 }
 connect();
 // Load everything up front so the first paint doesn't wait on the SSE
@@ -2139,10 +2117,9 @@ document.addEventListener('keydown', e => {
   if (!$('shortcuts-modal').hidden) return;
   switch (e.key) {
     case '?': showShortcuts(); break;
-    case 'q': toggleQueue(); break;
-    case 'c': toggleTabs(); break;
+    case 'q': isSplit() ? toggleQueueHalf() : toggleQueue(); break;
+    case 'c': if (isSplit()) toggleTabsHalf(); break;
     case 'f': toggleFiles(); break;
-    case 'p': togglePaneCol(); break;
     case 't': focusNextTab(); break;
     case 'g': focusNextGroup(); break;
     case 'a': if (isQueueOpen()) { e.preventDefault(); ackCurrentQueueCard(); } break;
